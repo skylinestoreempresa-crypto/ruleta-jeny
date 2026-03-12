@@ -1,13 +1,15 @@
 import json
+import logging
 import os
 import random
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode
 
-from flask import Flask, jsonify, redirect, render_template_string, request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from flask import Flask, jsonify, render_template_string, request
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -15,18 +17,28 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# =========================
+# =========================================================
 # CONFIGURACION
-# =========================
+# =========================================================
 
-TOKEN = "8705191584:AAG4sXJ7tBRHiMFVxw2THfzEFDtCVzZGYrA"
-ADMIN_IDS = {8445311801}
-BOT_NAME = "Ruleta Jeny"
-DEFAULT_CURRENCY = "UYU"
-LOG_FILE = Path("spins_log.json")
-UYU_TO_ARS = 25
-WEBAPP_BASE_URL = "https://ruleta-jeny-2.onrender.com"
-WEB_PORT = int(os.environ.get("PORT", 8080))
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+BOT_NAME = os.environ.get("BOT_NAME", "Ruleta Jeny").strip()
+DEFAULT_CURRENCY = os.environ.get("DEFAULT_CURRENCY", "UYU").strip().upper()
+WEBAPP_BASE_URL = os.environ.get(
+    "WEBAPP_BASE_URL",
+    "https://ruleta-jeny-2.onrender.com",
+).rstrip("/")
+WEB_PORT = int(os.environ.get("PORT", "8080"))
+UYU_TO_ARS = int(os.environ.get("UYU_TO_ARS", "25"))
+LOG_FILE = Path(os.environ.get("LOG_FILE", "spins_log.json"))
+
+ADMIN_IDS = {
+    int(x.strip())
+    for x in os.environ.get("ADMIN_IDS", "8445311801").split(",")
+    if x.strip().isdigit()
+}
+
+RUN_TELEGRAM_BOT = os.environ.get("RUN_TELEGRAM_BOT", "false").strip().lower() == "true"
 
 REAL_PRIZES = [
     {"name": "📸 Foto personalizada", "weight": 22, "uyu_price": 400},
@@ -41,42 +53,72 @@ REAL_PRIZES = [
 
 VISIBLE_ONLY_PRIZE = {"name": "💎 Encuentro", "uyu_price": 1500}
 
-app_flask = Flask(__name__)
-app = app_flask  # Gunicorn usa esto
+# =========================================================
+# LOGGING
+# =========================================================
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-# =========================
+# =========================================================
+# APP
+# =========================================================
+
+app = Flask(__name__)
+
+_log_lock = threading.Lock()
+_bot_lock = threading.Lock()
+_bot_started = False
+
+# =========================================================
 # UTILIDADES
-# =========================
+# =========================================================
+
 
 def ensure_log_file() -> None:
     if not LOG_FILE.exists():
         LOG_FILE.write_text("[]", encoding="utf-8")
 
 
-def load_logs() -> list:
+def load_logs() -> list[dict[str, Any]]:
     ensure_log_file()
-    try:
-        return json.loads(LOG_FILE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
+    with _log_lock:
+        try:
+            content = LOG_FILE.read_text(encoding="utf-8").strip()
+            if not content:
+                return []
+            data = json.loads(content)
+            return data if isinstance(data, list) else []
+        except (OSError, json.JSONDecodeError):
+            logger.exception("No se pudo leer el archivo de logs.")
+            return []
 
 
-def save_logs(logs: list) -> None:
-    LOG_FILE.write_text(
-        json.dumps(logs, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+def save_logs(logs: list[dict[str, Any]]) -> None:
+    with _log_lock:
+        LOG_FILE.write_text(
+            json.dumps(logs, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
 
-def log_spin(user_id, username, full_name, prize_name: str, currency: str) -> None:
+def log_spin(
+    user_id: str | int | None,
+    username: str | None,
+    full_name: str | None,
+    prize_name: str,
+    currency: str,
+) -> None:
     logs = load_logs()
     logs.append(
         {
-            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "user_id": user_id,
-            "username": username,
-            "full_name": full_name,
+            "username": username or "",
+            "full_name": full_name or "",
             "currency": currency,
             "prize": prize_name,
         }
@@ -84,21 +126,27 @@ def log_spin(user_id, username, full_name, prize_name: str, currency: str) -> No
     save_logs(logs)
 
 
-def pick_weighted_prize() -> dict:
+def pick_weighted_prize() -> dict[str, Any]:
     weights = [p["weight"] for p in REAL_PRIZES]
     return random.choices(REAL_PRIZES, weights=weights, k=1)[0]
 
 
 def get_currency_from_language(language_code: str | None) -> str:
     lang = (language_code or "").lower()
-    if lang == "es-ar":
+    if lang.startswith("es-ar"):
         return "ARS"
-    if lang == "es-uy":
+    if lang.startswith("es-uy"):
         return "UYU"
     return DEFAULT_CURRENCY
 
 
+def normalize_currency(currency: str | None) -> str:
+    value = (currency or DEFAULT_CURRENCY).strip().upper()
+    return value if value in {"UYU", "ARS"} else DEFAULT_CURRENCY
+
+
 def convert_price_from_uyu(amount_uyu: int, currency: str) -> str:
+    currency = normalize_currency(currency)
     if currency == "ARS":
         return f"${amount_uyu * UYU_TO_ARS} ARS"
     return f"${amount_uyu} UYU"
@@ -108,8 +156,8 @@ def get_ficha_price_text(currency: str) -> str:
     return convert_price_from_uyu(250, currency)
 
 
-def format_prize(prize: dict, currency: str) -> str:
-    return f"{prize['name']} — {convert_price_from_uyu(prize['uyu_price'], currency)}"
+def format_prize(prize: dict[str, Any], currency: str) -> str:
+    return f"{prize['name']} — {convert_price_from_uyu(int(prize['uyu_price']), currency)}"
 
 
 def format_prize_list(currency: str) -> str:
@@ -122,24 +170,27 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
-def build_webapp_url(user) -> str:
+def build_webapp_url(user: Any) -> str:
     currency = get_currency_from_language(getattr(user, "language_code", None))
     params = urlencode(
         {
-            "user_id": user.id,
-            "username": user.username or "",
-            "full_name": user.full_name or "",
+            "user_id": getattr(user, "id", ""),
+            "username": getattr(user, "username", "") or "",
+            "full_name": getattr(user, "full_name", "") or "",
             "currency": currency,
         }
     )
     return f"{WEBAPP_BASE_URL}/wheel?{params}"
 
 
-# =========================
+# =========================================================
 # TELEGRAM BOT
-# =========================
+# =========================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
     user = update.effective_user
     currency = get_currency_from_language(user.language_code)
     webapp_url = build_webapp_url(user)
@@ -148,7 +199,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [
             [
                 InlineKeyboardButton(
-                    text=f"🎰 ABRIR RULETA VISUAL • FICHA {get_ficha_price_text(currency)}",
+                    text=f"🎰 ABRIR RULETA • FICHA {get_ficha_price_text(currency)}",
                     web_app=WebAppInfo(url=webapp_url),
                 )
             ],
@@ -160,14 +211,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"🎀 Bienvenido/a a {BOT_NAME}\n\n"
         f"💱 Moneda detectada: {currency}\n"
         f"🎟 Valor de la ficha: {get_ficha_price_text(currency)}\n\n"
-        "Ahora la ruleta se abre en modo visual premium.\n"
-        "Toca el botón para abrir la ruleta animada."
+        "Abrí la ruleta visual premium desde el botón y girala en modo casino."
     )
 
     await update.message.reply_text(text, reply_markup=keyboard)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+
     await update.message.reply_text(
         "/start - abrir menú\n"
         "/premios - ver premios\n"
@@ -177,8 +230,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def premios_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
     user = update.effective_user
     currency = get_currency_from_language(user.language_code)
+
     await update.message.reply_text(
         f"🎁 Premios ({currency}):\n\n{format_prize_list(currency)}\n\n"
         f"🎟 Valor de la ficha: {get_ficha_price_text(currency)}"
@@ -186,10 +243,16 @@ async def premios_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
     await update.message.reply_text(f"Tu ID de Telegram es: {update.effective_user.id}")
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
     user = update.effective_user
     if not is_admin(user.id):
         await update.message.reply_text("No autorizado.")
@@ -197,13 +260,14 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     logs = load_logs()
     total = len(logs)
+
     if total == 0:
         await update.message.reply_text("Todavía no hay giros registrados.")
         return
 
-    counts = {}
+    counts: dict[str, int] = {}
     for item in logs:
-        prize = item["prize"]
+        prize = str(item.get("prize", "Sin premio"))
         counts[prize] = counts.get(prize, 0) + 1
 
     lines = [f"📊 Giros totales: {total}", ""]
@@ -215,79 +279,109 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
+    if not query:
+        return
+
     await query.answer()
 
     if query.data == "view_prizes":
         user = query.from_user
-        currency = get_currency_from_language(user.language_code)
+        currency = get_currency_from_language(getattr(user, "language_code", None))
+
         await query.message.reply_text(
             f"🎁 Premios ({currency}):\n\n{format_prize_list(currency)}\n\n"
             f"🎟 Valor de la ficha: {get_ficha_price_text(currency)}"
         )
 
 
-# =========================
-# WEB VISUAL
-# =========================
+def build_bot_application():
+    if not TOKEN:
+        raise RuntimeError("Falta TELEGRAM_BOT_TOKEN en variables de entorno.")
 
-HTML_TEMPLATE = r'''
+    bot_app = ApplicationBuilder().token(TOKEN).build()
+
+    bot_app.add_handler(CommandHandler("start", start))
+    bot_app.add_handler(CommandHandler("help", help_command))
+    bot_app.add_handler(CommandHandler("premios", premios_command))
+    bot_app.add_handler(CommandHandler("myid", myid_command))
+    bot_app.add_handler(CommandHandler("stats", stats_command))
+    bot_app.add_handler(CallbackQueryHandler(button_handler))
+
+    return bot_app
+
+
+def run_bot_polling() -> None:
+    try:
+        bot_app = build_bot_application()
+        logger.info("%s iniciado correctamente.", BOT_NAME)
+        bot_app.run_polling(drop_pending_updates=True)
+    except Exception:
+        logger.exception("Error al iniciar el bot de Telegram.")
+
+
+def start_bot_background_once() -> None:
+    global _bot_started
+
+    if not RUN_TELEGRAM_BOT:
+        return
+
+    if not TOKEN:
+        logger.warning("RUN_TELEGRAM_BOT=true pero falta TELEGRAM_BOT_TOKEN.")
+        return
+
+    with _bot_lock:
+        if _bot_started:
+            return
+
+        _bot_started = True
+        thread = threading.Thread(target=run_bot_polling, daemon=True)
+        thread.start()
+        logger.info("Bot de Telegram lanzado en background.")
+
+
+# =========================================================
+# HTML PREMIUM
+# =========================================================
+
+HTML_TEMPLATE = r"""
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ruleta de Premios Jenni</title>
+  <title>{{ bot_name }}</title>
   <style>
-    * { box-sizing: border-box; }
-
+    *{box-sizing:border-box}
     :root{
-      --bg1:#13010d;
-      --bg2:#220316;
-      --bg3:#3a0924;
-      --gold1:#fff1a8;
+      --bg1:#12010c;
+      --bg2:#1f0213;
+      --bg3:#32071f;
+      --gold1:#fff3b5;
       --gold2:#ffd85b;
-      --gold3:#d89a0e;
-      --gold4:#8f5b00;
-      --pink1:#ff5aa7;
-      --pink2:#ff2e85;
-      --pink3:#c8176d;
-      --violet1:#b44dff;
-      --violet2:#7d2cff;
-      --violet3:#5916c9;
-      --red1:#ff4f74;
-      --red2:#e81f55;
-      --glass:rgba(255,255,255,.06);
+      --gold3:#d99b0f;
+      --gold4:#8e5900;
+      --pink1:#ff60ad;
+      --pink2:#ff2b83;
+      --violet1:#ad4eff;
+      --violet2:#6e25e0;
+      --soft:rgba(255,255,255,.74);
       --line:rgba(255,255,255,.09);
-      --soft:rgba(255,255,255,.72);
-      --shadow:0 26px 80px rgba(0,0,0,.5);
+      --shadow:0 28px 80px rgba(0,0,0,.5);
     }
 
-    html, body { min-height:100%; }
+    html,body{min-height:100%}
 
     body{
       margin:0;
       color:#fff;
-      font-family: Inter, Arial, sans-serif;
+      font-family:Inter,Arial,sans-serif;
       background:
-        radial-gradient(circle at 50% -8%, rgba(255,215,92,.18), transparent 28%),
-        radial-gradient(circle at 12% 18%, rgba(255,58,140,.14), transparent 24%),
-        radial-gradient(circle at 84% 12%, rgba(138,43,226,.13), transparent 26%),
+        radial-gradient(circle at 50% -8%, rgba(255,215,92,.16), transparent 28%),
+        radial-gradient(circle at 12% 18%, rgba(255,58,140,.13), transparent 24%),
+        radial-gradient(circle at 84% 12%, rgba(138,43,226,.12), transparent 26%),
         linear-gradient(180deg, var(--bg3), var(--bg2) 42%, var(--bg1));
       padding:18px;
       overflow-x:hidden;
-    }
-
-    body::before{
-      content:"";
-      position:fixed;
-      inset:0;
-      pointer-events:none;
-      opacity:.12;
-      background:
-        linear-gradient(transparent 96%, rgba(255,255,255,.03) 100%),
-        linear-gradient(90deg, transparent 96%, rgba(255,255,255,.025) 100%);
-      background-size:100% 4px, 4px 100%;
-      mix-blend-mode:screen;
     }
 
     .layout{
@@ -307,15 +401,7 @@ HTML_TEMPLATE = r'''
       border:1px solid var(--line);
       background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
       box-shadow:var(--shadow);
-      backdrop-filter: blur(14px);
-    }
-
-    .card::before{
-      content:"";
-      position:absolute;
-      inset:0;
-      pointer-events:none;
-      background:linear-gradient(180deg, rgba(255,255,255,.06), transparent 14%, transparent 86%, rgba(255,255,255,.03));
+      backdrop-filter:blur(14px);
     }
 
     .card-header{
@@ -338,7 +424,6 @@ HTML_TEMPLATE = r'''
       color:#ffe7a0;
       border:1px solid rgba(255,216,91,.22);
       background:linear-gradient(180deg, rgba(255,216,91,.12), rgba(255,216,91,.04));
-      box-shadow:0 0 16px rgba(255,216,91,.08);
     }
 
     .title{
@@ -352,7 +437,7 @@ HTML_TEMPLATE = r'''
     }
 
     .title .accent{
-      background:linear-gradient(180deg, #fff8d4, #ffd85b 62%, #d89a0e);
+      background:linear-gradient(180deg,#fff8d4,#ffd85b 62%,#d89a0e);
       -webkit-background-clip:text;
       background-clip:text;
       color:transparent;
@@ -383,15 +468,14 @@ HTML_TEMPLATE = r'''
       position:absolute;
       inset:-5%;
       border-radius:50%;
-      background:
-        radial-gradient(circle, rgba(255,229,130,.28), rgba(255,202,88,.14), rgba(255,0,122,.08), transparent 72%);
+      background:radial-gradient(circle, rgba(255,229,130,.28), rgba(255,202,88,.14), rgba(255,0,122,.08), transparent 72%);
       filter:blur(28px);
       animation:auraPulse 2.5s ease-in-out infinite;
     }
 
     @keyframes auraPulse{
-      0%,100%{ transform:scale(1); opacity:.95; }
-      50%{ transform:scale(1.03); opacity:.82; }
+      0%,100%{transform:scale(1);opacity:.95}
+      50%{transform:scale(1.03);opacity:.82}
     }
 
     .wheel-reflection{
@@ -450,12 +534,9 @@ HTML_TEMPLATE = r'''
       height:92px;
       border-radius:50%;
       z-index:10;
-      background:
-        radial-gradient(circle at 28% 28%, var(--gold1), var(--gold2) 42%, var(--gold3) 75%, var(--gold4));
+      background:radial-gradient(circle at 28% 28%, var(--gold1), var(--gold2) 42%, var(--gold3) 75%, var(--gold4));
       border:8px solid rgba(255,255,255,.96);
-      box-shadow:
-        0 0 0 8px rgba(72,5,26,.4),
-        0 10px 30px rgba(0,0,0,.42);
+      box-shadow:0 0 0 8px rgba(72,5,26,.4), 0 10px 30px rgba(0,0,0,.42);
     }
 
     .wheel-center::after{
@@ -468,7 +549,7 @@ HTML_TEMPLATE = r'''
       height:28px;
       border-radius:50%;
       background:#87103f;
-      box-shadow: inset 0 2px 8px rgba(0,0,0,.35);
+      box-shadow:inset 0 2px 8px rgba(0,0,0,.35);
     }
 
     .wheel-center::before{
@@ -503,9 +584,7 @@ HTML_TEMPLATE = r'''
       border-left:28px solid transparent;
       border-right:28px solid transparent;
       border-top:58px solid var(--gold2);
-      filter:
-        drop-shadow(0 0 10px rgba(255,216,91,.92))
-        drop-shadow(0 4px 8px rgba(0,0,0,.28));
+      filter:drop-shadow(0 0 10px rgba(255,216,91,.92)) drop-shadow(0 4px 8px rgba(0,0,0,.28));
       transform-origin:50% 0%;
       animation:pointerPulse 1.3s ease-in-out infinite;
     }
@@ -521,8 +600,8 @@ HTML_TEMPLATE = r'''
     }
 
     @keyframes pointerPulse{
-      0%,100%{ transform:scaleY(1); }
-      50%{ transform:scaleY(1.08); }
+      0%,100%{transform:scaleY(1)}
+      50%{transform:scaleY(1.08)}
     }
 
     .lights span{
@@ -534,16 +613,14 @@ HTML_TEMPLATE = r'''
       margin:-6px 0 0 -6px;
       border-radius:999px;
       background:var(--gold2);
-      box-shadow:
-        0 0 9px rgba(255,221,120,.95),
-        0 0 18px rgba(255,221,120,.6);
+      box-shadow:0 0 9px rgba(255,221,120,.95), 0 0 18px rgba(255,221,120,.6);
       z-index:9;
       animation:blink 1.15s ease-in-out infinite;
     }
 
     @keyframes blink{
-      0%,100%{ opacity:1; transform:scale(1); }
-      50%{ opacity:.38; transform:scale(.8); }
+      0%,100%{opacity:1;transform:scale(1)}
+      50%{opacity:.38;transform:scale(.8)}
     }
 
     .controls{
@@ -564,22 +641,12 @@ HTML_TEMPLATE = r'''
       letter-spacing:.02em;
       color:#2a1700;
       background:linear-gradient(180deg, #fff0ae, #ffd85b 45%, #d89a0e);
-      box-shadow:
-        0 12px 24px rgba(0,0,0,.24),
-        0 0 0 2px rgba(255,255,255,.15) inset;
+      box-shadow:0 12px 24px rgba(0,0,0,.24), 0 0 0 2px rgba(255,255,255,.15) inset;
       transition:transform .18s ease, filter .18s ease, opacity .18s ease;
     }
 
-    .btn:hover{
-      transform:translateY(-2px) scale(1.01);
-      filter:brightness(1.03);
-    }
-
-    .btn:disabled{
-      opacity:.7;
-      cursor:not-allowed;
-      transform:none;
-    }
+    .btn:hover{transform:translateY(-2px) scale(1.01);filter:brightness(1.03)}
+    .btn:disabled{opacity:.7;cursor:not-allowed;transform:none}
 
     .info-label{
       color:rgba(255,255,255,.58);
@@ -603,10 +670,7 @@ HTML_TEMPLATE = r'''
       margin-top:2px;
     }
 
-    .panel{
-      display:grid;
-      gap:18px;
-    }
+    .panel{display:grid;gap:18px}
 
     .small-title{
       font-size:40px;
@@ -631,7 +695,6 @@ HTML_TEMPLATE = r'''
       text-align:center;
       cursor:pointer;
       transition:all .18s ease;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
     }
 
     .pill:hover{
@@ -645,10 +708,7 @@ HTML_TEMPLATE = r'''
       padding:22px;
       border-radius:24px;
       border:1px solid rgba(255,255,255,.12);
-      background:
-        radial-gradient(circle at top left, rgba(255,219,110,.10), transparent 30%),
-        linear-gradient(135deg, rgba(255,46,132,.18), rgba(91,34,219,.18));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+      background:radial-gradient(circle at top left, rgba(255,219,110,.10), transparent 30%), linear-gradient(135deg, rgba(255,46,132,.18), rgba(91,34,219,.18));
     }
 
     .winner-main{
@@ -673,12 +733,6 @@ HTML_TEMPLATE = r'''
       padding-right:4px;
     }
 
-    .prize-list::-webkit-scrollbar{ width:8px; }
-    .prize-list::-webkit-scrollbar-thumb{
-      background:rgba(255,255,255,.14);
-      border-radius:999px;
-    }
-
     .prize-item{
       display:flex;
       justify-content:space-between;
@@ -688,7 +742,6 @@ HTML_TEMPLATE = r'''
       border-radius:16px;
       background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
       border:1px solid rgba(255,255,255,.075);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
     }
 
     .prize-item span{
@@ -702,34 +755,23 @@ HTML_TEMPLATE = r'''
       white-space:nowrap;
     }
 
-    @media (max-width: 1040px){
-      .layout{ grid-template-columns:1fr; }
-      .small-title{ font-size:30px; }
+    @media (max-width:1040px){
+      .layout{grid-template-columns:1fr}
+      .small-title{font-size:30px}
     }
 
-    @media (max-width: 640px){
-      body{ padding:10px; }
-      .card{ border-radius:24px; }
-      .card-header{ padding:20px 18px; }
-      .card-body{ padding:18px; }
-      .wheel-shell{ border-width:14px; }
-      .wheel-center{
-        width:78px;
-        height:78px;
-      }
-      .pointer-wrap{ top:-8px; }
-      .pointer{
-        border-left-width:20px;
-        border-right-width:20px;
-        border-top-width:44px;
-      }
-      .btn{
-        width:100%;
-        font-size:18px;
-        padding:16px 20px;
-      }
-      .ticket{ font-size:28px; }
-      .pill-row{ grid-template-columns:1fr; }
+    @media (max-width:640px){
+      body{padding:10px}
+      .card{border-radius:24px}
+      .card-header{padding:20px 18px}
+      .card-body{padding:18px}
+      .wheel-shell{border-width:14px}
+      .wheel-center{width:78px;height:78px}
+      .pointer-wrap{top:-8px}
+      .pointer{border-left-width:20px;border-right-width:20px;border-top-width:44px}
+      .btn{width:100%;font-size:18px;padding:16px 20px}
+      .ticket{font-size:28px}
+      .pill-row{grid-template-columns:1fr}
     }
   </style>
 </head>
@@ -739,7 +781,7 @@ HTML_TEMPLATE = r'''
       <div class="card-header">
         <div class="title-badge">CASINO PREMIUM</div>
         <h1 class="title"><span class="accent">Ruleta de Premios</span> Jenni</h1>
-        <div class="subtitle">Diseño elegante, visual premium, más realismo y mejor presencia tipo casino</div>
+        <div class="subtitle">Diseño premium, realista y elegante estilo casino</div>
       </div>
 
       <div class="card-body">
@@ -765,7 +807,7 @@ HTML_TEMPLATE = r'''
           <button id="spinBtn" class="btn">🎰 GIRAR RULETA</button>
           <div class="info-label">Valor de la ficha</div>
           <div class="ticket" id="ticketPrice"></div>
-          <div class="footer-note">Ruleta de Premios Jenni • Visual premium • Casino style</div>
+          <div class="footer-note">{{ bot_name }} • premium • casino style</div>
         </div>
       </div>
     </div>
@@ -880,15 +922,7 @@ function renderWheel() {
       <g>
         <path d="${path}" fill="url(#${gradId})" stroke="rgba(255,255,255,0.26)" stroke-width="0.7"></path>
         <g transform="rotate(${midAngle} 50 50)">
-          <text
-            x="50"
-            y="15.3"
-            text-anchor="middle"
-            fill="white"
-            font-size="4"
-            font-weight="1000"
-            style="text-shadow:0 2px 4px rgba(0,0,0,.38);"
-          >${label}</text>
+          <text x="50" y="15.3" text-anchor="middle" fill="white" font-size="4" font-weight="1000">${label}</text>
         </g>
       </g>
     `;
@@ -946,6 +980,10 @@ async function spinWheel() {
 
     const data = await response.json();
 
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Error al girar");
+    }
+
     const index = prizes.findIndex((p) => p.name === data.prize.name);
     const segmentAngle = 360 / prizes.length;
     const targetSegmentCenter = index * segmentAngle + segmentAngle / 2;
@@ -967,7 +1005,6 @@ async function spinWheel() {
       spinBtn.textContent = "🎰 GIRAR RULETA";
       spinning = false;
     }, 5500);
-
   } catch (e) {
     alert("Error al girar la ruleta");
     spinBtn.disabled = false;
@@ -995,22 +1032,42 @@ document.getElementById("btnArs").addEventListener("click", () => {
 </script>
 </body>
 </html>
-'''
+"""
+
+# =========================================================
+# RUTAS
+# =========================================================
 
 
-@app_flask.get("/")
+@app.get("/")
 def home():
+    start_bot_background_once()
     return wheel_page()
 
 
-@app_flask.get("/wheel")
+@app.get("/health")
+def health():
+    return jsonify(
+        {
+            "ok": True,
+            "service": BOT_NAME,
+            "bot_running": RUN_TELEGRAM_BOT,
+        }
+    )
+
+
+@app.get("/wheel")
 def wheel_page():
+    start_bot_background_once()
+
     user_id = request.args.get("user_id", "")
     username = request.args.get("username", "")
     full_name = request.args.get("full_name", "")
-    currency = request.args.get("currency", DEFAULT_CURRENCY)
+    currency = normalize_currency(request.args.get("currency", DEFAULT_CURRENCY))
+
     return render_template_string(
         HTML_TEMPLATE,
+        bot_name=BOT_NAME,
         prizes=json.dumps(REAL_PRIZES, ensure_ascii=False),
         visible_only_prize=json.dumps(VISIBLE_ONLY_PRIZE, ensure_ascii=False),
         currency=currency,
@@ -1021,57 +1078,52 @@ def wheel_page():
     )
 
 
-@app_flask.post("/api/spin")
+@app.post("/api/spin")
 def api_spin():
-    data = request.get_json(force=True)
+    start_bot_background_once()
+
+    data = request.get_json(silent=True) or {}
+
     user_id = data.get("user_id")
-    username = data.get("username")
-    full_name = data.get("full_name")
-    currency = data.get("currency", DEFAULT_CURRENCY)
+    username = data.get("username", "")
+    full_name = data.get("full_name", "")
+    currency = normalize_currency(data.get("currency", DEFAULT_CURRENCY))
 
     prize = pick_weighted_prize()
-    prize_label = format_prize(prize, currency)
-    log_spin(user_id, username, full_name, prize_label, currency)
+
+    log_spin(
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+        prize_name=prize["name"],
+        currency=currency,
+    )
 
     return jsonify(
         {
             "ok": True,
             "prize": {
                 "name": prize["name"],
-                "label": convert_price_from_uyu(prize["uyu_price"], currency),
+                "label": convert_price_from_uyu(int(prize["uyu_price"]), currency),
             },
             "ticket": get_ficha_price_text(currency),
         }
     )
 
 
-# =========================
-# INICIO
-# =========================
-
-def run_flask():
-    app_flask.run(host="0.0.0.0", port=WEB_PORT, debug=False)
-
+# =========================================================
+# MAIN
+# =========================================================
 
 def main() -> None:
     ensure_log_file()
 
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
+    if RUN_TELEGRAM_BOT:
+        start_bot_background_once()
 
-    bot_app = ApplicationBuilder().token(TOKEN).build()
-
-    bot_app.add_handler(CommandHandler("start", start))
-    bot_app.add_handler(CommandHandler("help", help_command))
-    bot_app.add_handler(CommandHandler("premios", premios_command))
-    bot_app.add_handler(CommandHandler("myid", myid_command))
-    bot_app.add_handler(CommandHandler("stats", stats_command))
-    bot_app.add_handler(CallbackQueryHandler(button_handler))
-
-    print(f"{BOT_NAME} iniciado correctamente...")
-    print(f"Web visual disponible en http://127.0.0.1:{WEB_PORT}/wheel")
-    bot_app.run_polling()
+    logger.info("%s web iniciada en http://127.0.0.1:%s", BOT_NAME, WEB_PORT)
+    app.run(host="0.0.0.0", port=WEB_PORT, debug=False)
 
 
 if __name__ == "__main__":
-    main()  rearmamelo completo final  ya corregido con  las cosas puestas bien para que funcione directo bien ya
+    main()

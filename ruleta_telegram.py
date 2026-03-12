@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
 
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, jsonify, redirect, render_template_string, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     ApplicationBuilder,
@@ -25,7 +25,7 @@ BOT_NAME = "Ruleta Jeny"
 DEFAULT_CURRENCY = "UYU"
 LOG_FILE = Path("spins_log.json")
 UYU_TO_ARS = 25
-WEBAPP_BASE_URL = "https://intermural-haematothermal-mai.ngrok-free.dev"
+WEBAPP_BASE_URL = "https://ruleta-jeny-2.onrender.com"
 WEB_PORT = int(os.environ.get("PORT", 8080))
 
 REAL_PRIZES = [
@@ -42,7 +42,7 @@ REAL_PRIZES = [
 VISIBLE_ONLY_PRIZE = {"name": "💎 Encuentro", "uyu_price": 1500}
 
 app_flask = Flask(__name__)
-app = app_flask  # <- necesario para Render/Gunicorn
+app = app_flask  # Gunicorn usa esto
 
 
 # =========================
@@ -63,7 +63,10 @@ def load_logs() -> list:
 
 
 def save_logs(logs: list) -> None:
-    LOG_FILE.write_text(json.dumps(logs, ensure_ascii=False, indent=2), encoding="utf-8")
+    LOG_FILE.write_text(
+        json.dumps(logs, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
 
 
 def log_spin(user_id, username, full_name, prize_name: str, currency: str) -> None:
@@ -82,9 +85,8 @@ def log_spin(user_id, username, full_name, prize_name: str, currency: str) -> No
 
 
 def pick_weighted_prize() -> dict:
-    prizes = [p for p in REAL_PRIZES]
     weights = [p["weight"] for p in REAL_PRIZES]
-    return random.choices(prizes, weights=weights, k=1)[0]
+    return random.choices(REAL_PRIZES, weights=weights, k=1)[0]
 
 
 def get_currency_from_language(language_code: str | None) -> str:
@@ -98,8 +100,7 @@ def get_currency_from_language(language_code: str | None) -> str:
 
 def convert_price_from_uyu(amount_uyu: int, currency: str) -> str:
     if currency == "ARS":
-        ars = amount_uyu * UYU_TO_ARS
-        return f"${ars} ARS"
+        return f"${amount_uyu * UYU_TO_ARS} ARS"
     return f"${amount_uyu} UYU"
 
 
@@ -112,9 +113,7 @@ def format_prize(prize: dict, currency: str) -> str:
 
 
 def format_prize_list(currency: str) -> str:
-    lines = []
-    for p in REAL_PRIZES:
-        lines.append(format_prize(p, currency))
+    lines = [format_prize(p, currency) for p in REAL_PRIZES]
     lines.append(format_prize(VISIBLE_ONLY_PRIZE, currency))
     return "\n".join(lines)
 
@@ -161,7 +160,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"🎀 Bienvenido/a a {BOT_NAME}\n\n"
         f"💱 Moneda detectada: {currency}\n"
         f"🎟 Valor de la ficha: {get_ficha_price_text(currency)}\n\n"
-        "Ahora la ruleta se abre en modo visual tipo casino premium.\n"
+        "Ahora la ruleta se abre en modo visual premium.\n"
         "Toca el botón para abrir la ruleta animada."
     )
 
@@ -228,7 +227,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 # =========================
-# FLASK WEB APP VISUAL
+# WEB VISUAL
 # =========================
 
 HTML_TEMPLATE = r'''
@@ -237,136 +236,209 @@ HTML_TEMPLATE = r'''
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ruleta Casino Premium</title>
+  <title>Ruleta de Premios Jenni</title>
   <style>
     * { box-sizing: border-box; }
+
     :root{
-      --bg1:#12010e;
-      --bg2:#2a0720;
-      --gold1:#f7d457;
-      --gold2:#d89b13;
-      --gold3:#fff0ac;
-      --panel:rgba(255,255,255,.05);
-      --line:rgba(255,255,255,.11);
+      --bg1:#13010d;
+      --bg2:#220316;
+      --bg3:#3a0924;
+      --gold1:#fff1a8;
+      --gold2:#ffd85b;
+      --gold3:#d89a0e;
+      --gold4:#8f5b00;
+      --pink1:#ff5aa7;
+      --pink2:#ff2e85;
+      --pink3:#c8176d;
+      --violet1:#b44dff;
+      --violet2:#7d2cff;
+      --violet3:#5916c9;
+      --red1:#ff4f74;
+      --red2:#e81f55;
+      --glass:rgba(255,255,255,.06);
+      --line:rgba(255,255,255,.09);
       --soft:rgba(255,255,255,.72);
-      --shadow:0 24px 60px rgba(0,0,0,.45);
-      --pink:#ff3c8f;
-      --pink2:#d81b7a;
-      --violet:#8b2be2;
-      --violet2:#5e1ae3;
-      --red:#ff355d;
+      --shadow:0 26px 80px rgba(0,0,0,.5);
     }
+
+    html, body { min-height:100%; }
 
     body{
       margin:0;
-      font-family: Inter, Arial, sans-serif;
       color:#fff;
-      min-height:100vh;
+      font-family: Inter, Arial, sans-serif;
       background:
-        radial-gradient(circle at 50% -10%, rgba(255,208,84,.18), transparent 30%),
-        radial-gradient(circle at 10% 20%, rgba(255,31,143,.16), transparent 24%),
-        radial-gradient(circle at 80% 10%, rgba(139,43,226,.14), transparent 28%),
-        linear-gradient(180deg,var(--bg2),var(--bg1));
+        radial-gradient(circle at 50% -8%, rgba(255,215,92,.18), transparent 28%),
+        radial-gradient(circle at 12% 18%, rgba(255,58,140,.14), transparent 24%),
+        radial-gradient(circle at 84% 12%, rgba(138,43,226,.13), transparent 26%),
+        linear-gradient(180deg, var(--bg3), var(--bg2) 42%, var(--bg1));
       padding:18px;
+      overflow-x:hidden;
+    }
+
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      opacity:.12;
+      background:
+        linear-gradient(transparent 96%, rgba(255,255,255,.03) 100%),
+        linear-gradient(90deg, transparent 96%, rgba(255,255,255,.025) 100%);
+      background-size:100% 4px, 4px 100%;
+      mix-blend-mode:screen;
     }
 
     .layout{
       width:100%;
-      max-width:1280px;
+      max-width:1360px;
       margin:0 auto;
       display:grid;
-      grid-template-columns: 1.15fr .85fr;
-      gap:24px;
+      grid-template-columns:1.15fr .85fr;
+      gap:26px;
       align-items:start;
     }
 
     .card{
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
-      border:1px solid var(--line);
-      border-radius:32px;
-      box-shadow:var(--shadow);
-      overflow:hidden;
-      backdrop-filter: blur(12px);
       position:relative;
+      overflow:hidden;
+      border-radius:34px;
+      border:1px solid var(--line);
+      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+      box-shadow:var(--shadow);
+      backdrop-filter: blur(14px);
     }
 
     .card::before{
       content:"";
       position:absolute;
       inset:0;
-      background:linear-gradient(180deg, rgba(255,255,255,.05), transparent 18%, transparent 82%, rgba(255,255,255,.03));
       pointer-events:none;
+      background:linear-gradient(180deg, rgba(255,255,255,.06), transparent 14%, transparent 86%, rgba(255,255,255,.03));
     }
 
     .card-header{
-      padding:24px 26px;
-      border-bottom:1px solid rgba(255,255,255,.08);
-      background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.025));
       position:relative;
-      z-index:1;
+      z-index:2;
+      padding:26px 28px 22px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+    }
+
+    .title-badge{
+      width:max-content;
+      margin:0 auto 12px;
+      padding:8px 16px;
+      border-radius:999px;
+      font-size:12px;
+      letter-spacing:.24em;
+      text-transform:uppercase;
+      font-weight:800;
+      color:#ffe7a0;
+      border:1px solid rgba(255,216,91,.22);
+      background:linear-gradient(180deg, rgba(255,216,91,.12), rgba(255,216,91,.04));
+      box-shadow:0 0 16px rgba(255,216,91,.08);
     }
 
     .title{
-      font-size:clamp(28px,4vw,46px);
-      line-height:1.06;
-      font-weight:900;
-      letter-spacing:-.03em;
+      margin:0;
+      font-size:clamp(32px,4.6vw,58px);
+      line-height:1.02;
+      font-weight:1000;
+      letter-spacing:-.045em;
       text-align:center;
-      text-shadow:0 2px 12px rgba(0,0,0,.35);
+      text-shadow:0 4px 20px rgba(0,0,0,.4);
+    }
+
+    .title .accent{
+      background:linear-gradient(180deg, #fff8d4, #ffd85b 62%, #d89a0e);
+      -webkit-background-clip:text;
+      background-clip:text;
+      color:transparent;
     }
 
     .subtitle{
+      margin-top:12px;
       text-align:center;
       color:var(--soft);
-      margin-top:8px;
       font-size:16px;
+      line-height:1.45;
     }
 
     .card-body{
-      padding:28px;
       position:relative;
-      z-index:1;
+      z-index:2;
+      padding:28px;
     }
 
     .wheel-wrap{
       position:relative;
-      max-width:650px;
+      max-width:700px;
       margin:0 auto;
       aspect-ratio:1/1;
     }
 
     .wheel-aura{
       position:absolute;
-      inset:-4%;
+      inset:-5%;
       border-radius:50%;
       background:
-        radial-gradient(circle, rgba(255,231,133,.24), rgba(255,191,0,.12), rgba(255,0,122,.10), transparent 72%);
-      filter: blur(22px);
+        radial-gradient(circle, rgba(255,229,130,.28), rgba(255,202,88,.14), rgba(255,0,122,.08), transparent 72%);
+      filter:blur(28px);
+      animation:auraPulse 2.5s ease-in-out infinite;
+    }
+
+    @keyframes auraPulse{
+      0%,100%{ transform:scale(1); opacity:.95; }
+      50%{ transform:scale(1.03); opacity:.82; }
+    }
+
+    .wheel-reflection{
+      position:absolute;
+      inset:8% 18% auto 18%;
+      height:140px;
+      border-radius:999px;
+      background:linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0));
+      transform:rotate(-16deg);
+      filter:blur(4px);
+      z-index:8;
+      pointer-events:none;
     }
 
     .wheel-shell{
       position:absolute;
       inset:0;
       border-radius:50%;
+      overflow:hidden;
       background:
-        radial-gradient(circle at 50% 50%, rgba(255,255,255,.08), rgba(255,255,255,.01) 58%, transparent 60%),
-        linear-gradient(145deg, #3f0d24, #14040d);
-      border:18px solid var(--gold1);
+        radial-gradient(circle at 50% 50%, rgba(255,255,255,.07), rgba(255,255,255,.02) 58%, transparent 61%),
+        linear-gradient(145deg, #53122d, #17030d 58%, #2a0716);
+      border:18px solid var(--gold2);
       box-shadow:
         0 0 0 4px rgba(255,255,255,.08) inset,
-        0 0 0 10px rgba(76,17,40,.55) inset,
-        0 0 30px rgba(247,212,87,.36),
-        0 35px 60px rgba(0,0,0,.45);
-      overflow:hidden;
+        0 0 0 10px rgba(87,28,0,.3) inset,
+        0 0 28px rgba(255,216,91,.34),
+        0 28px 62px rgba(0,0,0,.42);
+      z-index:3;
+    }
+
+    .wheel-inner-ring{
+      position:absolute;
+      inset:16px;
+      border-radius:50%;
+      border:3px solid rgba(255,255,255,.1);
+      z-index:4;
+      pointer-events:none;
     }
 
     .wheel{
       width:100%;
       height:100%;
       border-radius:50%;
-      transition:transform 5.4s cubic-bezier(.08,.86,.22,1);
       transform:rotate(0deg);
-      filter: drop-shadow(0 10px 26px rgba(0,0,0,.35));
+      transition:transform 5.6s cubic-bezier(.08,.86,.2,1);
+      filter:drop-shadow(0 10px 28px rgba(0,0,0,.32));
     }
 
     .wheel-center{
@@ -374,16 +446,16 @@ HTML_TEMPLATE = r'''
       left:50%;
       top:50%;
       transform:translate(-50%,-50%);
-      width:82px;
-      height:82px;
+      width:92px;
+      height:92px;
       border-radius:50%;
-      z-index:9;
+      z-index:10;
       background:
-        radial-gradient(circle at 30% 30%, var(--gold3), var(--gold1) 45%, var(--gold2) 80%);
-      border:8px solid rgba(255,255,255,.92);
+        radial-gradient(circle at 28% 28%, var(--gold1), var(--gold2) 42%, var(--gold3) 75%, var(--gold4));
+      border:8px solid rgba(255,255,255,.96);
       box-shadow:
-        0 0 0 8px rgba(60,0,24,.35),
-        0 10px 26px rgba(0,0,0,.4);
+        0 0 0 8px rgba(72,5,26,.4),
+        0 10px 30px rgba(0,0,0,.42);
     }
 
     .wheel-center::after{
@@ -391,12 +463,24 @@ HTML_TEMPLATE = r'''
       position:absolute;
       left:50%;
       top:50%;
-      width:26px;
-      height:26px;
       transform:translate(-50%,-50%);
+      width:28px;
+      height:28px;
       border-radius:50%;
-      background:#8a103f;
-      box-shadow: inset 0 2px 6px rgba(0,0,0,.35);
+      background:#87103f;
+      box-shadow: inset 0 2px 8px rgba(0,0,0,.35);
+    }
+
+    .wheel-center::before{
+      content:"J";
+      position:absolute;
+      left:50%;
+      top:50%;
+      transform:translate(-50%,-50%);
+      font-size:24px;
+      font-weight:1000;
+      color:rgba(255,255,255,.18);
+      z-index:1;
     }
 
     .pointer-wrap{
@@ -404,29 +488,41 @@ HTML_TEMPLATE = r'''
       left:50%;
       top:-14px;
       transform:translateX(-50%);
-      z-index:10;
-      width:74px;
-      height:100px;
+      width:90px;
+      height:118px;
+      z-index:12;
       display:flex;
-      align-items:flex-start;
       justify-content:center;
+      align-items:flex-start;
       pointer-events:none;
     }
 
     .pointer{
       width:0;
       height:0;
-      border-left:24px solid transparent;
-      border-right:24px solid transparent;
-      border-top:54px solid var(--gold1);
-      filter: drop-shadow(0 0 8px rgba(247,212,87,.9));
+      border-left:28px solid transparent;
+      border-right:28px solid transparent;
+      border-top:58px solid var(--gold2);
+      filter:
+        drop-shadow(0 0 10px rgba(255,216,91,.92))
+        drop-shadow(0 4px 8px rgba(0,0,0,.28));
       transform-origin:50% 0%;
-      animation: pointerPulse 1.3s ease-in-out infinite;
+      animation:pointerPulse 1.3s ease-in-out infinite;
+    }
+
+    .pointer-cap{
+      position:absolute;
+      top:0;
+      width:22px;
+      height:22px;
+      border-radius:50%;
+      background:radial-gradient(circle at 30% 30%, var(--gold1), var(--gold2), var(--gold3));
+      box-shadow:0 0 10px rgba(255,216,91,.45);
     }
 
     @keyframes pointerPulse{
       0%,100%{ transform:scaleY(1); }
-      50%{ transform:scaleY(1.05); }
+      50%{ transform:scaleY(1.08); }
     }
 
     .lights span{
@@ -437,33 +533,21 @@ HTML_TEMPLATE = r'''
       height:12px;
       margin:-6px 0 0 -6px;
       border-radius:999px;
-      background:var(--gold1);
+      background:var(--gold2);
       box-shadow:
-        0 0 8px rgba(255,219,110,.95),
-        0 0 18px rgba(255,219,110,.65);
-      z-index:8;
-      animation: blink 1.25s ease-in-out infinite;
+        0 0 9px rgba(255,221,120,.95),
+        0 0 18px rgba(255,221,120,.6);
+      z-index:9;
+      animation:blink 1.15s ease-in-out infinite;
     }
 
     @keyframes blink{
       0%,100%{ opacity:1; transform:scale(1); }
-      50%{ opacity:.4; transform:scale(.82); }
-    }
-
-    .shine{
-      position:absolute;
-      inset:10% 16% auto 16%;
-      height:130px;
-      border-radius:999px;
-      background:linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0));
-      transform:rotate(-14deg);
-      filter: blur(4px);
-      pointer-events:none;
-      z-index:8;
+      50%{ opacity:.38; transform:scale(.8); }
     }
 
     .controls{
-      margin-top:28px;
+      margin-top:30px;
       display:flex;
       flex-direction:column;
       align-items:center;
@@ -473,35 +557,50 @@ HTML_TEMPLATE = r'''
     .btn{
       border:0;
       cursor:pointer;
-      padding:18px 34px;
-      border-radius:20px;
-      font-weight:900;
+      padding:18px 38px;
+      border-radius:22px;
       font-size:20px;
-      letter-spacing:.01em;
-      color:#1c0f00;
-      background:
-        linear-gradient(180deg, #ffe588, #f7d457 45%, #d89b13 100%);
+      font-weight:1000;
+      letter-spacing:.02em;
+      color:#2a1700;
+      background:linear-gradient(180deg, #fff0ae, #ffd85b 45%, #d89a0e);
       box-shadow:
-        0 10px 24px rgba(0,0,0,.22),
-        0 0 0 2px rgba(255,255,255,.16) inset;
+        0 12px 24px rgba(0,0,0,.24),
+        0 0 0 2px rgba(255,255,255,.15) inset;
       transition:transform .18s ease, filter .18s ease, opacity .18s ease;
     }
 
-    .btn:hover{ transform:translateY(-2px); filter:brightness(1.03); }
-    .btn:disabled{ opacity:.7; cursor:not-allowed; transform:none; }
+    .btn:hover{
+      transform:translateY(-2px) scale(1.01);
+      filter:brightness(1.03);
+    }
+
+    .btn:disabled{
+      opacity:.7;
+      cursor:not-allowed;
+      transform:none;
+    }
 
     .info-label{
-      color:rgba(255,255,255,.62);
+      color:rgba(255,255,255,.58);
       text-transform:uppercase;
       letter-spacing:.22em;
       font-size:12px;
-      font-weight:700;
+      font-weight:800;
     }
 
     .ticket{
-      font-size:34px;
-      font-weight:900;
-      text-shadow:0 4px 16px rgba(0,0,0,.28);
+      font-size:36px;
+      font-weight:1000;
+      letter-spacing:-.03em;
+      text-shadow:0 4px 14px rgba(0,0,0,.28);
+    }
+
+    .footer-note{
+      text-align:center;
+      color:rgba(255,255,255,.46);
+      font-size:12px;
+      margin-top:2px;
     }
 
     .panel{
@@ -510,9 +609,10 @@ HTML_TEMPLATE = r'''
     }
 
     .small-title{
-      font-size:38px;
-      font-weight:900;
-      letter-spacing:-.03em;
+      font-size:40px;
+      line-height:1;
+      font-weight:1000;
+      letter-spacing:-.04em;
     }
 
     .pill-row{
@@ -523,11 +623,11 @@ HTML_TEMPLATE = r'''
 
     .pill{
       border:1px solid rgba(255,255,255,.12);
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
-      color:white;
+      background:linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.03));
+      color:#fff;
       padding:15px 18px;
       border-radius:20px;
-      font-weight:800;
+      font-weight:900;
       text-align:center;
       cursor:pointer;
       transition:all .18s ease;
@@ -537,30 +637,30 @@ HTML_TEMPLATE = r'''
     .pill:hover{
       transform:translateY(-1px);
       border-color:rgba(255,255,255,.22);
-      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.05));
+      background:linear-gradient(180deg, rgba(255,255,255,.085), rgba(255,255,255,.045));
     }
 
     .winner{
+      min-height:156px;
       padding:22px;
       border-radius:24px;
+      border:1px solid rgba(255,255,255,.12);
       background:
         radial-gradient(circle at top left, rgba(255,219,110,.10), transparent 30%),
         linear-gradient(135deg, rgba(255,46,132,.18), rgba(91,34,219,.18));
-      border:1px solid rgba(255,255,255,.12);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
-      min-height:150px;
     }
 
     .winner-main{
-      font-size:clamp(30px,4vw,40px);
-      font-weight:900;
-      line-height:1.05;
+      font-size:clamp(30px,4vw,42px);
+      font-weight:1000;
+      line-height:1.03;
       margin-top:10px;
     }
 
     .winner-sub{
-      color:rgba(255,255,255,.82);
       margin-top:8px;
+      color:rgba(255,255,255,.84);
       font-size:18px;
       font-weight:700;
     }
@@ -568,14 +668,14 @@ HTML_TEMPLATE = r'''
     .prize-list{
       display:grid;
       gap:10px;
-      max-height:520px;
+      max-height:540px;
       overflow:auto;
       padding-right:4px;
     }
 
     .prize-list::-webkit-scrollbar{ width:8px; }
     .prize-list::-webkit-scrollbar-thumb{
-      background:rgba(255,255,255,.15);
+      background:rgba(255,255,255,.14);
       border-radius:999px;
     }
 
@@ -583,31 +683,28 @@ HTML_TEMPLATE = r'''
       display:flex;
       justify-content:space-between;
       align-items:center;
-      gap:16px;
+      gap:14px;
       padding:14px 16px;
       border-radius:16px;
-      background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-      border:1px solid rgba(255,255,255,.07);
-      font-size:15px;
+      background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.075);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
     }
 
-    .prize-item strong{
-      white-space:nowrap;
+    .prize-item span{
       font-size:15px;
+      font-weight:700;
+      color:#fff;
     }
 
-    .footer-note{
-      text-align:center;
-      color:rgba(255,255,255,.48);
-      font-size:12px;
-      margin-top:8px;
+    .prize-item strong{
+      font-size:15px;
+      white-space:nowrap;
     }
 
-    @media (max-width: 1000px){
+    @media (max-width: 1040px){
       .layout{ grid-template-columns:1fr; }
       .small-title{ font-size:30px; }
-      .card-body{ padding:22px; }
     }
 
     @media (max-width: 640px){
@@ -616,11 +713,15 @@ HTML_TEMPLATE = r'''
       .card-header{ padding:20px 18px; }
       .card-body{ padding:18px; }
       .wheel-shell{ border-width:14px; }
+      .wheel-center{
+        width:78px;
+        height:78px;
+      }
       .pointer-wrap{ top:-8px; }
       .pointer{
-        border-left-width:18px;
-        border-right-width:18px;
-        border-top-width:42px;
+        border-left-width:20px;
+        border-right-width:20px;
+        border-top-width:44px;
       }
       .btn{
         width:100%;
@@ -628,6 +729,7 @@ HTML_TEMPLATE = r'''
         padding:16px 20px;
       }
       .ticket{ font-size:28px; }
+      .pill-row{ grid-template-columns:1fr; }
     }
   </style>
 </head>
@@ -635,20 +737,23 @@ HTML_TEMPLATE = r'''
   <div class="layout">
     <div class="card">
       <div class="card-header">
-        <div class="title">🎰 Ruleta Casino Premium</div>
-        <div class="subtitle">Visual más pro, estilo casino, con la misma lógica real de tu bot</div>
+        <div class="title-badge">CASINO PREMIUM</div>
+        <h1 class="title"><span class="accent">Ruleta de Premios</span> Jenni</h1>
+        <div class="subtitle">Diseño elegante, visual premium, más realismo y mejor presencia tipo casino</div>
       </div>
 
       <div class="card-body">
         <div class="wheel-wrap">
           <div class="wheel-aura"></div>
-          <div class="shine"></div>
+          <div class="wheel-reflection"></div>
 
           <div class="pointer-wrap">
+            <div class="pointer-cap"></div>
             <div class="pointer" id="pointer"></div>
           </div>
 
           <div class="wheel-shell">
+            <div class="wheel-inner-ring"></div>
             <svg id="wheelSvg" class="wheel" viewBox="0 0 100 100"></svg>
           </div>
 
@@ -660,7 +765,7 @@ HTML_TEMPLATE = r'''
           <button id="spinBtn" class="btn">🎰 GIRAR RULETA</button>
           <div class="info-label">Valor de la ficha</div>
           <div class="ticket" id="ticketPrice"></div>
-          <div class="footer-note">Diseño casino premium • Ruleta visual animada</div>
+          <div class="footer-note">Ruleta de Premios Jenni • Visual premium • Casino style</div>
         </div>
       </div>
     </div>
@@ -730,11 +835,11 @@ function describeWedge(cx, cy, r, startAngle, endAngle) {
 function renderLights() {
   const wrap = document.getElementById("lights");
   wrap.innerHTML = "";
-  for (let i = 0; i < 28; i++) {
+  for (let i = 0; i < 30; i++) {
     const dot = document.createElement("span");
-    const angle = (i / 28) * 360;
-    dot.style.transform = `translate(-50%, -50%) rotate(${angle}deg) translateY(-305px)`;
-    dot.style.animationDelay = `${i * 0.05}s`;
+    const angle = (i / 30) * 360;
+    dot.style.transform = `translate(-50%, -50%) rotate(${angle}deg) translateY(-322px)`;
+    dot.style.animationDelay = `${i * 0.04}s`;
     wrap.appendChild(dot);
   }
 }
@@ -743,17 +848,19 @@ function renderWheel() {
   const svg = document.getElementById("wheelSvg");
   const angle = 360 / prizes.length;
   const colors = [
-    ["#ff4f94", "#d71f7f"],
-    ["#8f3dff", "#6225e6"],
-    ["#ff4f67", "#e01943"],
-    ["#ca41f0", "#9820d4"],
-    ["#ff2f7c", "#d91767"],
-    ["#9e37f1", "#741fe0"],
-    ["#ff5164", "#ea243d"],
-    ["#cf47ff", "#8e2be2"]
+    ["#ff5aa7", "#cc1f76"],
+    ["#a74dff", "#6d27e0"],
+    ["#ff5b75", "#e01e50"],
+    ["#d24dff", "#9227d6"],
+    ["#ff3f8d", "#d61d6c"],
+    ["#8f49ff", "#6224dd"],
+    ["#ff6272", "#ea2341"],
+    ["#d54fff", "#8b28e2"]
   ];
 
+  let defs = "";
   let html = "";
+
   prizes.forEach((prize, i) => {
     const startAngle = i * angle;
     const endAngle = (i + 1) * angle;
@@ -762,32 +869,32 @@ function renderWheel() {
     const label = prize.name.length > 18 ? prize.name.slice(0, 18) + "…" : prize.name;
     const gradId = `grad${i}`;
 
-    html += `
-      <defs>
-        <linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="${colors[i % colors.length][0]}"/>
-          <stop offset="100%" stop-color="${colors[i % colors.length][1]}"/>
-        </linearGradient>
-      </defs>
+    defs += `
+      <linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${colors[i % colors.length][0]}"/>
+        <stop offset="100%" stop-color="${colors[i % colors.length][1]}"/>
+      </linearGradient>
+    `;
 
+    html += `
       <g>
         <path d="${path}" fill="url(#${gradId})" stroke="rgba(255,255,255,0.26)" stroke-width="0.7"></path>
         <g transform="rotate(${midAngle} 50 50)">
           <text
             x="50"
-            y="15.4"
+            y="15.3"
             text-anchor="middle"
             fill="white"
-            font-size="4.15"
-            font-weight="900"
-            style="text-shadow:0 2px 4px rgba(0,0,0,.35);"
+            font-size="4"
+            font-weight="1000"
+            style="text-shadow:0 2px 4px rgba(0,0,0,.38);"
           >${label}</text>
         </g>
       </g>
     `;
   });
 
-  svg.innerHTML = html;
+  svg.innerHTML = `<defs>${defs}</defs>${html}`;
 }
 
 function renderPrizeList() {
@@ -810,13 +917,13 @@ function animatePointerBounce() {
   pointer.animate(
     [
       { transform: "scaleY(1)" },
-      { transform: "scaleY(1.12) translateY(2px)" },
-      { transform: "scaleY(0.96)" },
+      { transform: "scaleY(1.14) translateY(3px)" },
+      { transform: "scaleY(0.94)" },
       { transform: "scaleY(1)" }
     ],
     {
-      duration: 260,
-      iterations: 12,
+      duration: 240,
+      iterations: 14,
       easing: "ease-in-out"
     }
   );
@@ -842,7 +949,8 @@ async function spinWheel() {
     const index = prizes.findIndex((p) => p.name === data.prize.name);
     const segmentAngle = 360 / prizes.length;
     const targetSegmentCenter = index * segmentAngle + segmentAngle / 2;
-    currentRotation += (7 * 360) + (360 - targetSegmentCenter);
+
+    currentRotation += (8 * 360) + (360 - targetSegmentCenter);
 
     document.getElementById("wheelSvg").style.transform = `rotate(${currentRotation}deg)`;
     animatePointerBounce();
@@ -858,7 +966,7 @@ async function spinWheel() {
       spinBtn.disabled = false;
       spinBtn.textContent = "🎰 GIRAR RULETA";
       spinning = false;
-    }, 5400);
+    }, 5500);
 
   } catch (e) {
     alert("Error al girar la ruleta");
@@ -888,6 +996,11 @@ document.getElementById("btnArs").addEventListener("click", () => {
 </body>
 </html>
 '''
+
+
+@app_flask.get("/")
+def home():
+    return wheel_page()
 
 
 @app_flask.get("/wheel")
@@ -961,4 +1074,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main()  rearmamelo completo final  ya corregido con  las cosas puestas bien para que funcione directo bien ya

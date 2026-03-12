@@ -1,4 +1,5 @@
 import json
+import os
 import random
 import threading
 from datetime import datetime
@@ -25,7 +26,7 @@ DEFAULT_CURRENCY = "UYU"
 LOG_FILE = Path("spins_log.json")
 UYU_TO_ARS = 25
 WEBAPP_BASE_URL = "https://intermural-haematothermal-mai.ngrok-free.dev"
-WEB_PORT = 8080
+WEB_PORT = int(os.environ.get("PORT", 8080))
 
 REAL_PRIZES = [
     {"name": "📸 Foto personalizada", "weight": 22, "uyu_price": 400},
@@ -41,6 +42,8 @@ REAL_PRIZES = [
 VISIBLE_ONLY_PRIZE = {"name": "💎 Encuentro", "uyu_price": 1500}
 
 app_flask = Flask(__name__)
+app = app_flask  # <- necesario para Render/Gunicorn
+
 
 # =========================
 # UTILIDADES
@@ -158,7 +161,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"🎀 Bienvenido/a a {BOT_NAME}\n\n"
         f"💱 Moneda detectada: {currency}\n"
         f"🎟 Valor de la ficha: {get_ficha_price_text(currency)}\n\n"
-        "Ahora la ruleta se abre en modo visual tipo casino.\n"
+        "Ahora la ruleta se abre en modo visual tipo casino premium.\n"
         "Toca el botón para abrir la ruleta animada."
     )
 
@@ -234,136 +237,397 @@ HTML_TEMPLATE = r'''
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ruleta Visual</title>
+  <title>Ruleta Casino Premium</title>
   <style>
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: radial-gradient(circle at top, #5a1039 0%, #180510 48%, #090409 100%);
-      color: white;
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 18px;
+    :root{
+      --bg1:#12010e;
+      --bg2:#2a0720;
+      --gold1:#f7d457;
+      --gold2:#d89b13;
+      --gold3:#fff0ac;
+      --panel:rgba(255,255,255,.05);
+      --line:rgba(255,255,255,.11);
+      --soft:rgba(255,255,255,.72);
+      --shadow:0 24px 60px rgba(0,0,0,.45);
+      --pink:#ff3c8f;
+      --pink2:#d81b7a;
+      --violet:#8b2be2;
+      --violet2:#5e1ae3;
+      --red:#ff355d;
     }
-    .layout {
-      width: 100%;
-      max-width: 1120px;
-      display: grid;
-      grid-template-columns: 1.2fr .8fr;
-      gap: 22px;
+
+    body{
+      margin:0;
+      font-family: Inter, Arial, sans-serif;
+      color:#fff;
+      min-height:100vh;
+      background:
+        radial-gradient(circle at 50% -10%, rgba(255,208,84,.18), transparent 30%),
+        radial-gradient(circle at 10% 20%, rgba(255,31,143,.16), transparent 24%),
+        radial-gradient(circle at 80% 10%, rgba(139,43,226,.14), transparent 28%),
+        linear-gradient(180deg,var(--bg2),var(--bg1));
+      padding:18px;
     }
-    .card {
-      background: rgba(255,255,255,.05);
-      border: 1px solid rgba(255,255,255,.12);
-      border-radius: 28px;
-      box-shadow: 0 18px 50px rgba(0,0,0,.35);
+
+    .layout{
+      width:100%;
+      max-width:1280px;
+      margin:0 auto;
+      display:grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap:24px;
+      align-items:start;
+    }
+
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+      border:1px solid var(--line);
+      border-radius:32px;
+      box-shadow:var(--shadow);
+      overflow:hidden;
       backdrop-filter: blur(12px);
-      overflow: hidden;
+      position:relative;
     }
-    .card-header {
-      padding: 22px 24px;
-      border-bottom: 1px solid rgba(255,255,255,.08);
-      background: rgba(255,255,255,.03);
+
+    .card::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:linear-gradient(180deg, rgba(255,255,255,.05), transparent 18%, transparent 82%, rgba(255,255,255,.03));
+      pointer-events:none;
     }
-    .title { font-size: 34px; font-weight: 800; text-align: center; }
-    .subtitle { text-align: center; color: rgba(255,255,255,.72); margin-top: 8px; }
-    .card-body { padding: 28px; }
-    .wheel-wrap {
-      position: relative;
-      max-width: 560px;
-      margin: 0 auto;
-      aspect-ratio: 1/1;
+
+    .card-header{
+      padding:24px 26px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.025));
+      position:relative;
+      z-index:1;
     }
-    .wheel-glow {
-      position: absolute; inset: 0;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(255,230,120,.2), rgba(255,0,120,.06), transparent 70%);
-      filter: blur(18px);
+
+    .title{
+      font-size:clamp(28px,4vw,46px);
+      line-height:1.06;
+      font-weight:900;
+      letter-spacing:-.03em;
+      text-align:center;
+      text-shadow:0 2px 12px rgba(0,0,0,.35);
     }
-    .pointer {
-      position: absolute;
-      left: 50%; top: -6px;
-      transform: translateX(-50%);
-      width: 0; height: 0;
-      border-left: 18px solid transparent;
-      border-right: 18px solid transparent;
-      border-top: 34px solid #f8d34b;
-      z-index: 6;
-      filter: drop-shadow(0 0 10px rgba(248,211,75,.95));
+
+    .subtitle{
+      text-align:center;
+      color:var(--soft);
+      margin-top:8px;
+      font-size:16px;
     }
-    .wheel-shell {
-      position: absolute; inset: 0;
-      border-radius: 50%;
-      border: 14px solid #f8d34b;
-      box-shadow: 0 0 28px rgba(248,211,75,.34);
-      overflow: hidden;
-      background: rgba(0,0,0,.2);
-      z-index: 3;
+
+    .card-body{
+      padding:28px;
+      position:relative;
+      z-index:1;
     }
-    .wheel {
-      width: 100%; height: 100%;
-      border-radius: 50%;
-      transition: transform 5.2s cubic-bezier(.12,.8,.2,1);
-      transform: rotate(0deg);
+
+    .wheel-wrap{
+      position:relative;
+      max-width:650px;
+      margin:0 auto;
+      aspect-ratio:1/1;
     }
-    .lights span {
-      position: absolute;
-      left: 50%; top: 50%;
-      width: 10px; height: 10px;
-      margin: -5px 0 0 -5px;
-      border-radius: 999px;
-      background: #f8d34b;
-      box-shadow: 0 0 10px rgba(248,211,75,.95);
-      z-index: 7;
+
+    .wheel-aura{
+      position:absolute;
+      inset:-4%;
+      border-radius:50%;
+      background:
+        radial-gradient(circle, rgba(255,231,133,.24), rgba(255,191,0,.12), rgba(255,0,122,.10), transparent 72%);
+      filter: blur(22px);
     }
-    .controls { margin-top: 26px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
-    .btn {
-      border: 0; cursor: pointer;
-      background: linear-gradient(90deg, #f8d34b, #ffbf00);
-      color: #1e1200;
-      font-weight: 800;
-      font-size: 18px;
-      padding: 16px 28px;
-      border-radius: 18px;
-      box-shadow: 0 10px 24px rgba(0,0,0,.25);
+
+    .wheel-shell{
+      position:absolute;
+      inset:0;
+      border-radius:50%;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(255,255,255,.08), rgba(255,255,255,.01) 58%, transparent 60%),
+        linear-gradient(145deg, #3f0d24, #14040d);
+      border:18px solid var(--gold1);
+      box-shadow:
+        0 0 0 4px rgba(255,255,255,.08) inset,
+        0 0 0 10px rgba(76,17,40,.55) inset,
+        0 0 30px rgba(247,212,87,.36),
+        0 35px 60px rgba(0,0,0,.45);
+      overflow:hidden;
     }
-    .btn:disabled { opacity: .65; cursor: not-allowed; }
-    .info-label { color: rgba(255,255,255,.65); text-transform: uppercase; letter-spacing: .18em; font-size: 12px; }
-    .ticket { font-size: 30px; font-weight: 800; }
-    .panel { display: grid; gap: 18px; }
-    .small-title { font-size: 28px; font-weight: 800; }
-    .pill-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .pill {
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.06);
-      color: white;
-      padding: 14px 16px;
-      border-radius: 18px;
-      font-weight: 700;
-      text-align: center;
-      cursor: pointer;
+
+    .wheel{
+      width:100%;
+      height:100%;
+      border-radius:50%;
+      transition:transform 5.4s cubic-bezier(.08,.86,.22,1);
+      transform:rotate(0deg);
+      filter: drop-shadow(0 10px 26px rgba(0,0,0,.35));
     }
-    .winner {
-      padding: 18px;
-      border-radius: 20px;
-      background: linear-gradient(135deg, rgba(255,0,128,.18), rgba(120,0,255,.18));
-      border: 1px solid rgba(255,255,255,.12);
+
+    .wheel-center{
+      position:absolute;
+      left:50%;
+      top:50%;
+      transform:translate(-50%,-50%);
+      width:82px;
+      height:82px;
+      border-radius:50%;
+      z-index:9;
+      background:
+        radial-gradient(circle at 30% 30%, var(--gold3), var(--gold1) 45%, var(--gold2) 80%);
+      border:8px solid rgba(255,255,255,.92);
+      box-shadow:
+        0 0 0 8px rgba(60,0,24,.35),
+        0 10px 26px rgba(0,0,0,.4);
     }
-    .winner-main { font-size: 28px; font-weight: 800; margin-top: 8px; }
-    .winner-sub { color: rgba(255,255,255,.8); margin-top: 6px; }
-    .prize-list { display: grid; gap: 10px; }
-    .prize-item {
-      display: flex; justify-content: space-between; gap: 16px;
-      padding: 12px 14px; border-radius: 14px;
-      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06);
-      font-size: 14px;
+
+    .wheel-center::after{
+      content:"";
+      position:absolute;
+      left:50%;
+      top:50%;
+      width:26px;
+      height:26px;
+      transform:translate(-50%,-50%);
+      border-radius:50%;
+      background:#8a103f;
+      box-shadow: inset 0 2px 6px rgba(0,0,0,.35);
     }
-    @media (max-width: 920px) {
-      .layout { grid-template-columns: 1fr; }
-      .title { font-size: 28px; }
+
+    .pointer-wrap{
+      position:absolute;
+      left:50%;
+      top:-14px;
+      transform:translateX(-50%);
+      z-index:10;
+      width:74px;
+      height:100px;
+      display:flex;
+      align-items:flex-start;
+      justify-content:center;
+      pointer-events:none;
+    }
+
+    .pointer{
+      width:0;
+      height:0;
+      border-left:24px solid transparent;
+      border-right:24px solid transparent;
+      border-top:54px solid var(--gold1);
+      filter: drop-shadow(0 0 8px rgba(247,212,87,.9));
+      transform-origin:50% 0%;
+      animation: pointerPulse 1.3s ease-in-out infinite;
+    }
+
+    @keyframes pointerPulse{
+      0%,100%{ transform:scaleY(1); }
+      50%{ transform:scaleY(1.05); }
+    }
+
+    .lights span{
+      position:absolute;
+      left:50%;
+      top:50%;
+      width:12px;
+      height:12px;
+      margin:-6px 0 0 -6px;
+      border-radius:999px;
+      background:var(--gold1);
+      box-shadow:
+        0 0 8px rgba(255,219,110,.95),
+        0 0 18px rgba(255,219,110,.65);
+      z-index:8;
+      animation: blink 1.25s ease-in-out infinite;
+    }
+
+    @keyframes blink{
+      0%,100%{ opacity:1; transform:scale(1); }
+      50%{ opacity:.4; transform:scale(.82); }
+    }
+
+    .shine{
+      position:absolute;
+      inset:10% 16% auto 16%;
+      height:130px;
+      border-radius:999px;
+      background:linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0));
+      transform:rotate(-14deg);
+      filter: blur(4px);
+      pointer-events:none;
+      z-index:8;
+    }
+
+    .controls{
+      margin-top:28px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:16px;
+    }
+
+    .btn{
+      border:0;
+      cursor:pointer;
+      padding:18px 34px;
+      border-radius:20px;
+      font-weight:900;
+      font-size:20px;
+      letter-spacing:.01em;
+      color:#1c0f00;
+      background:
+        linear-gradient(180deg, #ffe588, #f7d457 45%, #d89b13 100%);
+      box-shadow:
+        0 10px 24px rgba(0,0,0,.22),
+        0 0 0 2px rgba(255,255,255,.16) inset;
+      transition:transform .18s ease, filter .18s ease, opacity .18s ease;
+    }
+
+    .btn:hover{ transform:translateY(-2px); filter:brightness(1.03); }
+    .btn:disabled{ opacity:.7; cursor:not-allowed; transform:none; }
+
+    .info-label{
+      color:rgba(255,255,255,.62);
+      text-transform:uppercase;
+      letter-spacing:.22em;
+      font-size:12px;
+      font-weight:700;
+    }
+
+    .ticket{
+      font-size:34px;
+      font-weight:900;
+      text-shadow:0 4px 16px rgba(0,0,0,.28);
+    }
+
+    .panel{
+      display:grid;
+      gap:18px;
+    }
+
+    .small-title{
+      font-size:38px;
+      font-weight:900;
+      letter-spacing:-.03em;
+    }
+
+    .pill-row{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+    }
+
+    .pill{
+      border:1px solid rgba(255,255,255,.12);
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+      color:white;
+      padding:15px 18px;
+      border-radius:20px;
+      font-weight:800;
+      text-align:center;
+      cursor:pointer;
+      transition:all .18s ease;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+    }
+
+    .pill:hover{
+      transform:translateY(-1px);
+      border-color:rgba(255,255,255,.22);
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.05));
+    }
+
+    .winner{
+      padding:22px;
+      border-radius:24px;
+      background:
+        radial-gradient(circle at top left, rgba(255,219,110,.10), transparent 30%),
+        linear-gradient(135deg, rgba(255,46,132,.18), rgba(91,34,219,.18));
+      border:1px solid rgba(255,255,255,.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+      min-height:150px;
+    }
+
+    .winner-main{
+      font-size:clamp(30px,4vw,40px);
+      font-weight:900;
+      line-height:1.05;
+      margin-top:10px;
+    }
+
+    .winner-sub{
+      color:rgba(255,255,255,.82);
+      margin-top:8px;
+      font-size:18px;
+      font-weight:700;
+    }
+
+    .prize-list{
+      display:grid;
+      gap:10px;
+      max-height:520px;
+      overflow:auto;
+      padding-right:4px;
+    }
+
+    .prize-list::-webkit-scrollbar{ width:8px; }
+    .prize-list::-webkit-scrollbar-thumb{
+      background:rgba(255,255,255,.15);
+      border-radius:999px;
+    }
+
+    .prize-item{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:16px;
+      padding:14px 16px;
+      border-radius:16px;
+      background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.07);
+      font-size:15px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
+    }
+
+    .prize-item strong{
+      white-space:nowrap;
+      font-size:15px;
+    }
+
+    .footer-note{
+      text-align:center;
+      color:rgba(255,255,255,.48);
+      font-size:12px;
+      margin-top:8px;
+    }
+
+    @media (max-width: 1000px){
+      .layout{ grid-template-columns:1fr; }
+      .small-title{ font-size:30px; }
+      .card-body{ padding:22px; }
+    }
+
+    @media (max-width: 640px){
+      body{ padding:10px; }
+      .card{ border-radius:24px; }
+      .card-header{ padding:20px 18px; }
+      .card-body{ padding:18px; }
+      .wheel-shell{ border-width:14px; }
+      .pointer-wrap{ top:-8px; }
+      .pointer{
+        border-left-width:18px;
+        border-right-width:18px;
+        border-top-width:42px;
+      }
+      .btn{
+        width:100%;
+        font-size:18px;
+        padding:16px 20px;
+      }
+      .ticket{ font-size:28px; }
     }
   </style>
 </head>
@@ -371,23 +635,32 @@ HTML_TEMPLATE = r'''
   <div class="layout">
     <div class="card">
       <div class="card-header">
-        <div class="title">🎰 Ruleta Casino Visual</div>
-        <div class="subtitle">La misma lógica de tu bot, ahora con ruleta animada real</div>
+        <div class="title">🎰 Ruleta Casino Premium</div>
+        <div class="subtitle">Visual más pro, estilo casino, con la misma lógica real de tu bot</div>
       </div>
+
       <div class="card-body">
         <div class="wheel-wrap">
-          <div class="wheel-glow"></div>
-          <div class="pointer"></div>
+          <div class="wheel-aura"></div>
+          <div class="shine"></div>
+
+          <div class="pointer-wrap">
+            <div class="pointer" id="pointer"></div>
+          </div>
+
           <div class="wheel-shell">
             <svg id="wheelSvg" class="wheel" viewBox="0 0 100 100"></svg>
           </div>
+
+          <div class="wheel-center"></div>
           <div class="lights" id="lights"></div>
         </div>
 
         <div class="controls">
           <button id="spinBtn" class="btn">🎰 GIRAR RULETA</button>
-          <div class="info-label">Ficha</div>
+          <div class="info-label">Valor de la ficha</div>
           <div class="ticket" id="ticketPrice"></div>
+          <div class="footer-note">Diseño casino premium • Ruleta visual animada</div>
         </div>
       </div>
     </div>
@@ -396,6 +669,7 @@ HTML_TEMPLATE = r'''
       <div class="card-header">
         <div class="small-title">Panel</div>
       </div>
+
       <div class="card-body panel">
         <div class="pill-row">
           <button class="pill" id="btnUyu">🇺🇾 Mostrar UYU</button>
@@ -422,6 +696,7 @@ const visibleOnlyPrize = {{ visible_only_prize|safe }};
 let currency = {{ currency|tojson }};
 let currentRotation = 0;
 let spinning = false;
+
 const queryData = {
   user_id: {{ user_id|tojson }},
   username: {{ username|tojson }},
@@ -455,10 +730,11 @@ function describeWedge(cx, cy, r, startAngle, endAngle) {
 function renderLights() {
   const wrap = document.getElementById("lights");
   wrap.innerHTML = "";
-  for (let i = 0; i < 24; i++) {
+  for (let i = 0; i < 28; i++) {
     const dot = document.createElement("span");
-    const angle = (i / 24) * 360;
-    dot.style.transform = `translate(-50%, -50%) rotate(${angle}deg) translateY(-270px)`;
+    const angle = (i / 28) * 360;
+    dot.style.transform = `translate(-50%, -50%) rotate(${angle}deg) translateY(-305px)`;
+    dot.style.animationDelay = `${i * 0.05}s`;
     wrap.appendChild(dot);
   }
 }
@@ -466,7 +742,16 @@ function renderLights() {
 function renderWheel() {
   const svg = document.getElementById("wheelSvg");
   const angle = 360 / prizes.length;
-  const colors = ["#ec4899", "#a21caf", "#f43f5e", "#d946ef", "#e11d48", "#c026d3", "#db2777", "#9333ea"];
+  const colors = [
+    ["#ff4f94", "#d71f7f"],
+    ["#8f3dff", "#6225e6"],
+    ["#ff4f67", "#e01943"],
+    ["#ca41f0", "#9820d4"],
+    ["#ff2f7c", "#d91767"],
+    ["#9e37f1", "#741fe0"],
+    ["#ff5164", "#ea243d"],
+    ["#cf47ff", "#8e2be2"]
+  ];
 
   let html = "";
   prizes.forEach((prize, i) => {
@@ -475,17 +760,33 @@ function renderWheel() {
     const midAngle = startAngle + angle / 2;
     const path = describeWedge(50, 50, 48, startAngle, endAngle);
     const label = prize.name.length > 18 ? prize.name.slice(0, 18) + "…" : prize.name;
+    const gradId = `grad${i}`;
+
     html += `
+      <defs>
+        <linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="${colors[i % colors.length][0]}"/>
+          <stop offset="100%" stop-color="${colors[i % colors.length][1]}"/>
+        </linearGradient>
+      </defs>
+
       <g>
-        <path d="${path}" fill="${colors[i % colors.length]}" stroke="rgba(255,255,255,0.3)" stroke-width="0.7"></path>
+        <path d="${path}" fill="url(#${gradId})" stroke="rgba(255,255,255,0.26)" stroke-width="0.7"></path>
         <g transform="rotate(${midAngle} 50 50)">
-          <text x="50" y="16" text-anchor="middle" fill="white" font-size="4" font-weight="700">${label}</text>
+          <text
+            x="50"
+            y="15.4"
+            text-anchor="middle"
+            fill="white"
+            font-size="4.15"
+            font-weight="900"
+            style="text-shadow:0 2px 4px rgba(0,0,0,.35);"
+          >${label}</text>
         </g>
       </g>
     `;
   });
-  html += '<circle cx="50" cy="50" r="7" fill="#f8d34b" stroke="#fff" stroke-width="1.5"></circle>';
-  html += '<circle cx="50" cy="50" r="2" fill="#7a1038"></circle>';
+
   svg.innerHTML = html;
 }
 
@@ -504,12 +805,30 @@ function renderTicket() {
   document.getElementById("ticketPrice").textContent = ticketText();
 }
 
+function animatePointerBounce() {
+  const pointer = document.getElementById("pointer");
+  pointer.animate(
+    [
+      { transform: "scaleY(1)" },
+      { transform: "scaleY(1.12) translateY(2px)" },
+      { transform: "scaleY(0.96)" },
+      { transform: "scaleY(1)" }
+    ],
+    {
+      duration: 260,
+      iterations: 12,
+      easing: "ease-in-out"
+    }
+  );
+}
+
 async function spinWheel() {
   if (spinning) return;
   spinning = true;
+
   const spinBtn = document.getElementById("spinBtn");
   spinBtn.disabled = true;
-  spinBtn.textContent = "⏳ Girando...";
+  spinBtn.textContent = "⏳ GIRANDO...";
 
   try {
     const response = await fetch("/api/spin", {
@@ -517,13 +836,16 @@ async function spinWheel() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...queryData, currency })
     });
+
     const data = await response.json();
 
     const index = prizes.findIndex((p) => p.name === data.prize.name);
     const segmentAngle = 360 / prizes.length;
     const targetSegmentCenter = index * segmentAngle + segmentAngle / 2;
-    currentRotation += (6 * 360) + (360 - targetSegmentCenter);
+    currentRotation += (7 * 360) + (360 - targetSegmentCenter);
+
     document.getElementById("wheelSvg").style.transform = `rotate(${currentRotation}deg)`;
+    animatePointerBounce();
 
     setTimeout(() => {
       const box = document.getElementById("winnerBox");
@@ -532,10 +854,12 @@ async function spinWheel() {
         <div class="winner-main">${data.prize.name}</div>
         <div class="winner-sub">${data.prize.label}</div>
       `;
+
       spinBtn.disabled = false;
       spinBtn.textContent = "🎰 GIRAR RULETA";
       spinning = false;
-    }, 5200);
+    }, 5400);
+
   } catch (e) {
     alert("Error al girar la ruleta");
     spinBtn.disabled = false;
@@ -550,8 +874,16 @@ renderPrizeList();
 renderTicket();
 
 document.getElementById("spinBtn").addEventListener("click", spinWheel);
-document.getElementById("btnUyu").addEventListener("click", () => { currency = "UYU"; renderPrizeList(); renderTicket(); });
-document.getElementById("btnArs").addEventListener("click", () => { currency = "ARS"; renderPrizeList(); renderTicket(); });
+document.getElementById("btnUyu").addEventListener("click", () => {
+  currency = "UYU";
+  renderPrizeList();
+  renderTicket();
+});
+document.getElementById("btnArs").addEventListener("click", () => {
+  currency = "ARS";
+  renderPrizeList();
+  renderTicket();
+});
 </script>
 </body>
 </html>
@@ -614,18 +946,18 @@ def main() -> None:
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    bot_app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("premios", premios_command))
-    app.add_handler(CommandHandler("myid", myid_command))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(CallbackQueryHandler(button_handler))
+    bot_app.add_handler(CommandHandler("start", start))
+    bot_app.add_handler(CommandHandler("help", help_command))
+    bot_app.add_handler(CommandHandler("premios", premios_command))
+    bot_app.add_handler(CommandHandler("myid", myid_command))
+    bot_app.add_handler(CommandHandler("stats", stats_command))
+    bot_app.add_handler(CallbackQueryHandler(button_handler))
 
     print(f"{BOT_NAME} iniciado correctamente...")
     print(f"Web visual disponible en http://127.0.0.1:{WEB_PORT}/wheel")
-    app.run_polling()
+    bot_app.run_polling()
 
 
 if __name__ == "__main__":

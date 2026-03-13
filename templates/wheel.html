@@ -1,536 +1,872 @@
-<!doctype html>
-<html lang="{{ language|default('es', true) }}" dir="ltr">
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="x-ua-compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#14030b">
-  <meta name="color-scheme" content="dark">
-  <meta name="format-detection" content="telephone=no,email=no,address=no">
-  <meta name="application-name" content="{{ bot_name|default('Ruleta Premium', true)|e }}">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="{{ bot_name|default('Ruleta Premium', true)|e }}">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Ruleta premium estilo casino con premios, demo transparente, compra de fichas y experiencia inmersiva 3D.">
-  <meta name="robots" content="noindex,nofollow">
-  <title>{{ bot_name|default('Ruleta Premium', true) }} | Ruleta Premium</title>
+(() => {
+  "use strict";
 
-  <link rel="preload" href="{{ url_for('static', filename='css/wheel.css') }}" as="style">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/wheel.css') }}">
-  <link rel="preload" href="{{ url_for('static', filename='js/wheel.js') }}" as="script">
-</head>
-<body
-  class="app-body app-body--luxury"
-  data-app="ruleta"
-  data-bot-name="{{ bot_name|default('Ruleta Premium', true)|e }}"
-  data-currency="{{ currency|default('UYU', true)|e }}"
-  data-user-id="{{ user_id|default('', true)|e }}"
-  data-username="{{ username|default('', true)|e }}"
-  data-display-name="{{ display_name|default('Jugador', true)|e }}"
-  data-preview-mode="{{ preview_mode|default('ticket', true)|e }}"
-  data-preview-label="{{ preview_label|default('Tirada real', true)|e }}"
-  data-preview-notice="{{ preview_notice|default('', true)|e }}"
-  data-ticket-price="{{ ticket_price|default('', true)|e }}"
-  data-mp-link-ar="{{ mp_link_ar|default('', true)|e }}"
-  data-mp-link-uy="{{ mp_link_uy|default('', true)|e }}"
->
-  <a href="#mainContent" class="sr-only focusable">Saltar al contenido principal</a>
+  const raw = window.RULETA_CONFIG || {};
 
-  <div class="page-glow page-glow--top" aria-hidden="true"></div>
-  <div class="page-glow page-glow--left" aria-hidden="true"></div>
-  <div class="page-glow page-glow--right" aria-hidden="true"></div>
+  const byId = (id) => document.getElementById(id);
+  const safeText = (value, fallback = "") => {
+    const text = String(value ?? "").replace(/\s+/g, " ").trim();
+    return text || fallback;
+  };
+  const safeInt = (value, fallback = 0) => {
+    const n = Number.parseInt(value, 10);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const safeFloat = (value, fallback = 0) => {
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const normalizeAngle = (deg) => ((deg % 360) + 360) % 360;
+  const easeOutQuint = (t) => 1 - Math.pow(1 - t, 5);
 
-  <div class="stars" id="stars" aria-hidden="true"></div>
-  <div class="particles" id="particles" aria-hidden="true"></div>
-  <div class="confetti-wrap" id="confettiWrap" aria-hidden="true"></div>
-  <div class="confetti-wrap confetti-wrap--secondary" id="confettiWrapSecondary" aria-hidden="true"></div>
+  const defaultPrizes = [
+    { name: "Pose favorita", weight: 35.9, uyu_price: 200, colorA: "#ff85b6", colorB: "#8f5cff", badge: "Top" },
+    { name: "Pack digital", weight: 24, uyu_price: 350, colorA: "#ffd45e", colorB: "#ff8a3d", badge: "Hot" },
+    { name: "Video personalizado", weight: 18, uyu_price: 500, colorA: "#9feeff", colorB: "#35cfff", badge: "Pro" },
+    { name: "Pack especial", weight: 10, uyu_price: 700, colorA: "#ff9768", colorB: "#ff4d88", badge: "VIP" },
+    { name: "Video exclusivo 3 min", weight: 6, uyu_price: 750, colorA: "#c8afff", colorB: "#6a36ff", badge: "Elite" },
+    { name: "10 imágenes premium", weight: 4, uyu_price: 1000, colorA: "#fff0b0", colorB: "#d89b10", badge: "Gold" },
+    { name: "Chat VIP 30 minutos", weight: 2, uyu_price: 950, colorA: "#b5ffe6", colorB: "#23d091", badge: "Rare" }
+  ];
 
-  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-  <div class="sr-only" id="liveRegion" aria-live="polite" aria-atomic="true"></div>
-  <div class="sr-only" id="alertRegion" aria-live="assertive" aria-atomic="true"></div>
+  const normalizePrize = (prize, index, uyuToArs) => {
+    const weight = safeFloat(prize.weight ?? prize.chance, 1);
+    const uyuPrice = safeInt(prize.uyu_price ?? prize.price_uyu ?? prize.price ?? 0, 0);
+    const arsPrice = safeInt(prize.ars_price, Math.round(uyuPrice * uyuToArs));
+    const name = safeText(prize.name, `Premio ${index + 1}`);
 
-  <div class="loading-layer" id="loadingLayer" aria-hidden="true">
-    <div class="loading-card" role="status" aria-live="polite" aria-label="Cargando ruleta">
-      <div class="loading-spinner" aria-hidden="true"></div>
-      <div class="loading-text">Preparando experiencia premium...</div>
-    </div>
-  </div>
+    const palette = [
+      ["#ff8fbe", "#8f5cff"],
+      ["#ffd45e", "#ff8a3d"],
+      ["#9feeff", "#35cfff"],
+      ["#ff9768", "#ff4d88"],
+      ["#c8afff", "#6a36ff"],
+      ["#fff0b0", "#d89b10"],
+      ["#b5ffe6", "#23d091"],
+      ["#ffaad7", "#ff5f98"]
+    ];
 
-  <noscript>
-    <div class="card" style="margin:16px;">
-      <div class="card-header">
-        <h1 class="title">{{ bot_name|default('Ruleta Premium', true) }}</h1>
-        <p class="promo-copy">Activá JavaScript para usar la demo, comprar fichas y girar la ruleta.</p>
-      </div>
-    </div>
-  </noscript>
+    const colors = palette[index % palette.length];
 
-  <main class="layout layout--premium" id="mainContent">
-    <section class="card card--hero" id="wheelCard" aria-labelledby="pageTitle">
-      <div class="spin-glow" aria-hidden="true"></div>
-      <div class="hero-shine" aria-hidden="true"></div>
-      <div class="hero-border-glow" aria-hidden="true"></div>
+    return {
+      id: index,
+      name,
+      weight,
+      uyuPrice,
+      arsPrice,
+      colorA: safeText(prize.colorA, colors[0]),
+      colorB: safeText(prize.colorB, colors[1]),
+      badge: safeText(prize.badge, "Premio"),
+      raw: prize
+    };
+  };
 
-      <header class="card-header card-header--hero">
-        <div class="top-meta">
-          <div class="title-badge" aria-label="Experiencia casino premium">CASINO PREMIUM</div>
+  const config = {
+    prizes: Array.isArray(raw.prizes) && raw.prizes.length ? raw.prizes : defaultPrizes,
+    currency: safeText(raw.currency, "UYU").toUpperCase() === "ARS" ? "ARS" : "UYU",
+    userId: safeText(raw.user_id, "guest"),
+    username: safeText(raw.username, ""),
+    displayName: safeText(raw.display_name, ""),
+    fullName: safeText(raw.full_name, ""),
+    botName: safeText(raw.bot_name, "Ruleta Premium"),
+    previewMode: safeText(raw.preview_mode, "ticket"),
+    previewLabel: safeText(raw.preview_label, "Tirada real"),
+    previewNotice: safeText(raw.preview_notice, ""),
+    ticketPriceUyu: safeInt(raw.ticket_price_uyu, 250),
+    ticketPriceLabel: safeText(raw.ticket_price_label, ""),
+    demoSpinsLeft: safeInt(raw.demo_spins_left, 1),
+    fichas: safeInt(raw.fichas, 0),
+    uyuToArs: safeFloat(raw.uyu_to_ars, 25),
+    paymentLinks: {
+      AR: safeText(raw.mp_link_ar, ""),
+      UY: safeText(raw.mp_link_uy, "")
+    },
+    endpoints: raw.endpoints || {}
+  };
 
-          <div
-            class="mode-badge {% if (preview_mode|default('ticket', true)) == 'demo' %}is-demo{% else %}is-real{% endif %}"
-            id="modeBadge"
-            aria-live="polite"
-          >
-            <span class="mode-badge-dot" aria-hidden="true"></span>
-            <span id="modeBadgeText">{{ preview_label|default('Tirada real', true) }}</span>
-          </div>
+  const state = {
+    prizes: [],
+    currency: config.currency,
+    fichas: config.fichas,
+    demoSpinsLeft: config.demoSpinsLeft,
+    spinning: false,
+    currentRotation: 0,
+    activeIndex: -1,
+    totalWeight: 0,
+    displayName: "",
+    firstOpenDone: false
+  };
 
-          <div class="live-badge" aria-label="Modo visual activo">
-            <span class="live-dot" aria-hidden="true"></span>
-            <span>Modo en vivo</span>
-          </div>
-        </div>
+  const els = {
+    stars: byId("stars"),
+    particles: byId("particles"),
+    confettiWrap: byId("confettiWrap"),
+    toast: byId("toast"),
+    liveRegion: byId("liveRegion"),
 
-        <h1 class="title title--hero" id="pageTitle">
-          <span class="accent">Ruleta de Premios</span>
-          <span class="brand-name">{{ bot_name|default('Jeny', true) }}</span>
-        </h1>
+    wheelWrap: byId("wheelWrap"),
+    wheelSvg: byId("wheelSvg"),
+    ball: byId("ball"),
+    ballShadow: byId("ballShadow"),
+    lights: byId("lights"),
 
-        {% if preview_notice|default('', true) %}
-        <div
-          class="demo-notice-banner"
-          id="demoNoticeBanner"
-          role="note"
-          aria-label="Aviso de transparencia del modo demo"
-        >
-          <strong>{{ preview_label|default('Demo', true) }}:</strong>
-          <span id="demoNoticeText">{{ preview_notice }}</span>
-        </div>
-        {% endif %}
+    spinBtn: byId("spinBtn"),
+    demoBtn: byId("demoBtn"),
+    buyBtn: byId("buyBtn"),
+    btnUyu: byId("btnUyu"),
+    btnArs: byId("btnArs"),
+    payArBtn: byId("payArBtn"),
+    payUyBtn: byId("payUyBtn"),
+    confirmArPaidBtn: byId("confirmArPaidBtn"),
+    confirmUyPaidBtn: byId("confirmUyPaidBtn"),
 
-        <div class="promo-copy promo-copy--hero">
-          <strong>🎰 Comprá tu ficha y probá tu suerte</strong>
-          <span>
-            Girá por packs, videos, bundles y premios especiales. La demo sirve para ver la experiencia y la versión con ficha usa la tirada real.
-          </span>
-        </div>
+    ticketPrice: byId("ticketPrice"),
+    miniTicket: byId("miniTicket"),
+    realPrizeCount: byId("realPrizeCount"),
+    miniFichas: byId("miniFichas"),
+    miniDemo: byId("miniDemo"),
 
-        <section class="mini-stats mini-stats--hero" aria-label="Resumen rápido de la ruleta">
-          <article class="mini-stat">
-            <div class="mini-stat-label">Valor ficha</div>
-            <output class="mini-stat-value" id="miniTicket" aria-live="polite">{{ ticket_price|default('', true) }}</output>
-          </article>
+    greetingTitle: byId("greetingTitle"),
+    greetingText: byId("greetingText"),
+    playerNameText: byId("playerNameText"),
+    fichasValue: byId("fichasValue"),
+    statusValue: byId("statusValue"),
+    spinState: byId("spinState"),
+    winnerMain: byId("winnerMain"),
+    winnerSub: byId("winnerSub"),
+    winnerBadge: byId("winnerBadge"),
+    prizeList: byId("prizeList"),
+    totalItemsChip: byId("totalItemsChip"),
+    currencyChip: byId("currencyChip"),
+    previewChip: byId("previewChip"),
+    transparencyText: byId("transparencyText"),
+    modeBadgeText: byId("modeBadgeText"),
 
-          <article class="mini-stat">
-            <div class="mini-stat-label">Premios</div>
-            <output class="mini-stat-value" id="realPrizeCount" aria-live="polite">{{ prizes|length }}</output>
-          </article>
+    nameModal: byId("nameModal"),
+    playerNameInput: byId("playerNameInput"),
+    saveNameBtn: byId("saveNameBtn"),
+    skipNameBtn: byId("skipNameBtn"),
+    prizeItemTemplate: byId("prizeItemTemplate")
+  };
 
-          <article class="mini-stat">
-            <div class="mini-stat-label">Tus fichas</div>
-            <output class="mini-stat-value" id="miniFichas" aria-live="polite">{{ fichas|default(0, true) }}</output>
-          </article>
+  const storageKey = `ruleta_player_name_${config.userId || "guest"}`;
 
-          <article class="mini-stat">
-            <div class="mini-stat-label">Demo</div>
-            <output class="mini-stat-value" id="miniDemo" aria-live="polite">{{ demo_spins_left|default(0, true) }}</output>
-          </article>
-        </section>
-      </header>
+  function sanitizeName(value) {
+    return safeText(value)
+      .replace(/[<>{}[\]\\/_|~^`]/g, "")
+      .slice(0, 40)
+      .trim();
+  }
 
-      <div class="card-body card-body--hero">
-        <section class="wheel-stage wheel-stage--premium" aria-labelledby="wheelAreaTitle">
-          <h2 class="sr-only" id="wheelAreaTitle">Área principal de la ruleta</h2>
+  function announce(message) {
+    if (els.liveRegion) {
+      els.liveRegion.textContent = message;
+    }
+  }
 
-          <div class="wheel-spotlight wheel-spotlight--left" aria-hidden="true"></div>
-          <div class="wheel-spotlight wheel-spotlight--right" aria-hidden="true"></div>
+  function showToast(message) {
+    if (!els.toast) return;
+    els.toast.textContent = message;
+    els.toast.classList.add("show");
+    announce(message);
+    clearTimeout(showToast._timer);
+    showToast._timer = setTimeout(() => {
+      els.toast.classList.remove("show");
+    }, 2200);
+  }
 
-          <div
-            class="wheel-wrap wheel-wrap--premium"
-            id="wheelWrap"
-            role="img"
-            aria-label="Ruleta de premios estilo casino con puntero y pelota animada"
-          >
-            <div class="wheel-floor" aria-hidden="true"></div>
-            <div class="wheel-aura" aria-hidden="true"></div>
-            <div class="wheel-aura wheel-aura--secondary" aria-hidden="true"></div>
-            <div class="halo-ring" aria-hidden="true"></div>
-            <div class="halo-ring two" aria-hidden="true"></div>
-            <div class="halo-ring three" aria-hidden="true"></div>
-            <div class="wheel-outer-metal" aria-hidden="true"></div>
-            <div class="wheel-reflection" aria-hidden="true"></div>
-            <div class="wheel-reflection wheel-reflection--secondary" aria-hidden="true"></div>
+  function openModal() {
+    if (!els.nameModal) return;
+    els.nameModal.classList.add("is-open");
+    els.nameModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("has-modal");
+    setTimeout(() => {
+      els.playerNameInput?.focus();
+      els.playerNameInput?.select();
+    }, 60);
+  }
 
-            <div class="pointer-wrap pointer-wrap--premium" aria-hidden="true">
-              <div class="pointer-cap"></div>
-              <div class="pointer-cap pointer-cap--outer"></div>
-              <div class="pointer" id="pointer"></div>
-            </div>
+  function closeModal() {
+    if (!els.nameModal) return;
+    els.nameModal.classList.remove("is-open");
+    els.nameModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("has-modal");
+  }
 
-            <div class="wheel-shell wheel-shell--premium">
-              <div class="wheel-inner-ring" aria-hidden="true"></div>
-              <div class="wheel-depth" aria-hidden="true"></div>
-              <div class="wheel-depth wheel-depth--inner" aria-hidden="true"></div>
+  function formatMoney(value, currency = state.currency) {
+    const amount = Number.isFinite(Number(value)) ? Number(value) : 0;
+    const formatted = new Intl.NumberFormat("es-UY").format(amount);
+    return `$${formatted} ${currency}`;
+  }
 
-              <svg
-                id="wheelSvg"
-                class="wheel"
-                viewBox="0 0 100 100"
-                role="img"
-                aria-label="Ruleta interactiva de premios"
-                focusable="false"
-              ></svg>
+  function ticketLabel() {
+    const priceUyu = safeInt(config.ticketPriceUyu, 250);
+    if (state.currency === "ARS") {
+      return formatMoney(Math.round(priceUyu * config.uyuToArs), "ARS");
+    }
+    return formatMoney(priceUyu, "UYU");
+  }
 
-              <div class="wheel-gloss" aria-hidden="true"></div>
-              <div class="wheel-gloss wheel-gloss--secondary" aria-hidden="true"></div>
-            </div>
+  function prizePriceLabel(prize) {
+    return state.currency === "ARS"
+      ? formatMoney(prize.arsPrice, "ARS")
+      : formatMoney(prize.uyuPrice, "UYU");
+  }
 
-            <div class="ball-track ball-track--premium" id="ballTrack" aria-hidden="true">
-              <div class="ball ball--xl" id="ball">
-                <span class="ball-highlight" aria-hidden="true"></span>
-              </div>
-            </div>
+  function computeChance(weight) {
+    if (!state.totalWeight) return "0%";
+    return `${((weight / state.totalWeight) * 100).toFixed(1)}%`;
+  }
 
-            <div class="wheel-center wheel-center--premium" aria-hidden="true"></div>
-            <div class="lights" id="lights" aria-hidden="true"></div>
-          </div>
-        </section>
+  function updateHeaderGreeting() {
+    const player = state.displayName || "Jugador";
+    if (els.greetingTitle) {
+      els.greetingTitle.textContent = state.displayName ? `Hola, ${player}` : "Hola";
+    }
+    if (els.greetingText) {
+      els.greetingText.textContent = state.displayName
+        ? `Bienvenido ${player}. Mucha suerte en la ruleta de ${config.botName}.`
+        : "Bienvenido. Mucha suerte en la ruleta.";
+    }
+    if (els.playerNameText) {
+      els.playerNameText.textContent = player;
+    }
+  }
 
-        <section class="controls controls--premium" aria-labelledby="controlsTitle">
-          <h2 class="sr-only" id="controlsTitle">Controles de la ruleta</h2>
+  function updateCounters() {
+    if (els.ticketPrice) els.ticketPrice.textContent = ticketLabel();
+    if (els.miniTicket) els.miniTicket.textContent = ticketLabel();
+    if (els.realPrizeCount) els.realPrizeCount.textContent = String(state.prizes.length);
+    if (els.miniFichas) els.miniFichas.textContent = String(state.fichas);
+    if (els.miniDemo) els.miniDemo.textContent = String(state.demoSpinsLeft);
+    if (els.fichasValue) els.fichasValue.textContent = `${state.fichas} fichas`;
+    if (els.currencyChip) els.currencyChip.textContent = `Moneda ${state.currency}`;
+    if (els.previewChip) els.previewChip.textContent = config.previewLabel;
+    if (els.modeBadgeText) els.modeBadgeText.textContent = config.previewLabel;
+    if (els.totalItemsChip) els.totalItemsChip.textContent = `${state.prizes.length} premios`;
+  }
 
-          <button
-            id="spinBtn"
-            class="btn btn--primary btn--xl"
-            type="button"
-            data-action="spin-ticket"
-            aria-label="Girar la ruleta usando una ficha"
-            aria-controls="wheelSvg winnerBox statusValue spinState"
-          >
-            🎰 GIRAR CON FICHA
-          </button>
+  function updateCurrencyButtons() {
+    els.btnUyu?.classList.toggle("is-active", state.currency === "UYU");
+    els.btnArs?.classList.toggle("is-active", state.currency === "ARS");
+  }
 
-          <div class="btn-row btn-row--actions" role="group" aria-label="Acciones principales">
-            <button
-              id="demoBtn"
-              class="btn-demo btn-demo--premium"
-              type="button"
-              data-action="spin-demo"
-              aria-label="Probar una tirada demo"
-              aria-controls="wheelSvg winnerBox statusValue spinState"
-            >
-              🆓 TIRADA DEMO
-            </button>
+  function setStatus(text, spinState = null) {
+    if (els.statusValue) els.statusValue.textContent = text;
+    if (spinState && els.spinState) els.spinState.textContent = spinState;
+  }
 
-            <button
-              id="buyBtn"
-              class="btn-pay btn-pay--premium"
-              type="button"
-              data-action="buy-ticket"
-              aria-label="Comprar una ficha"
-              aria-controls="ticketPrice"
-            >
-              💳 COMPRAR FICHA
-            </button>
-          </div>
+  function splitLabel(text) {
+    const clean = safeText(text);
+    if (clean.length <= 14) return [clean];
+    const words = clean.split(" ");
+    if (words.length === 1) return [clean.slice(0, 14), clean.slice(14)];
+    const first = [];
+    const second = [];
+    let target = first;
 
-          <div class="btn-subline">suerte • brillo • premios • casino premium</div>
+    for (const word of words) {
+      const candidate = [...target, word].join(" ");
+      if (candidate.length > 14 && target === first) {
+        target = second;
+      }
+      target.push(word);
+    }
 
-          <div class="info-label">Valor de la ficha</div>
-          <output class="ticket ticket--hero" id="ticketPrice" aria-live="polite">{{ ticket_price|default('', true) }}</output>
+    const line1 = first.join(" ").trim();
+    const line2 = second.join(" ").trim();
+    return line2 ? [line1, line2] : [line1];
+  }
 
-          <div class="action-help" id="actionHelp" role="note">
-            La demo muestra la experiencia visual. La tirada con ficha usa el modo real.
-          </div>
+  function polar(cx, cy, r, angleDeg) {
+    const rad = (angleDeg - 90) * Math.PI / 180;
+    return {
+      x: cx + r * Math.cos(rad),
+      y: cy + r * Math.sin(rad)
+    };
+  }
 
-          <div class="footer-note">
-            {{ bot_name|default('Ruleta Premium', true) }} • premium • casino style • 3D
-          </div>
-        </section>
-      </div>
-    </section>
+  function describeSlice(cx, cy, r, startAngle, endAngle) {
+    const start = polar(cx, cy, r, endAngle);
+    const end = polar(cx, cy, r, startAngle);
+    const largeArc = endAngle - startAngle <= 180 ? "0" : "1";
+    return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`;
+  }
 
-    <aside class="card card--panel" aria-labelledby="panelTitle">
-      <header class="card-header">
-        <div class="panel-top">
-          <h2 class="small-title" id="panelTitle">Panel</h2>
-          <div class="chip" id="currencyChip" aria-live="polite">Moneda {{ currency|default('UYU', true) }}</div>
-        </div>
-      </header>
+  function renderWheel() {
+    if (!els.wheelSvg) return;
 
-      <div class="card-body panel">
-        <section class="profile-row" aria-label="Resumen del jugador">
-          <article class="status-card">
-            <div class="status-label">Jugador</div>
-            <output class="status-value" id="playerNameText" aria-live="polite">{{ display_name|default('Jugador', true) }}</output>
-          </article>
+    const segmentAngle = 360 / state.prizes.length;
 
-          <article class="status-card">
-            <div class="status-label">Saldo</div>
-            <output class="status-value" id="fichasValue" aria-live="polite">{{ fichas|default(0, true) }} fichas</output>
-          </article>
-        </section>
+    const defs = [
+      `<defs>`,
+      `<radialGradient id="wheelCenterGlow" cx="50%" cy="50%" r="70%">`,
+      `<stop offset="0%" stop-color="rgba(255,255,255,.20)" />`,
+      `<stop offset="100%" stop-color="rgba(0,0,0,.12)" />`,
+      `</radialGradient>`,
+      ...state.prizes.map((prize, index) => `
+        <linearGradient id="seg-${index}" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="${prize.colorA}"/>
+          <stop offset="100%" stop-color="${prize.colorB}"/>
+        </linearGradient>
+      `),
+      `</defs>`
+    ].join("");
 
-        <div class="pill-row" role="group" aria-label="Selector de moneda visual">
-          <button
-            class="pill {% if currency|default('UYU', true) == 'UYU' %}is-active{% endif %}"
-            id="btnUyu"
-            type="button"
-            aria-label="Mostrar valores en pesos uruguayos"
-            aria-pressed="{% if currency|default('UYU', true) == 'UYU' %}true{% else %}false{% endif %}"
-          >
-            🇺🇾 Mostrar UYU
-          </button>
+    const slices = state.prizes.map((prize, index) => {
+      const start = -90 + index * segmentAngle;
+      const end = start + segmentAngle;
+      const mid = start + segmentAngle / 2;
+      const path = describeSlice(50, 50, 46, start, end);
 
-          <button
-            class="pill {% if currency|default('UYU', true) == 'ARS' %}is-active{% endif %}"
-            id="btnArs"
-            type="button"
-            aria-label="Mostrar valores en pesos argentinos"
-            aria-pressed="{% if currency|default('UYU', true) == 'ARS' %}true{% else %}false{% endif %}"
-          >
-            🇦🇷 Mostrar ARS
-          </button>
-        </div>
+      const labelRadius = 31;
+      const point = polar(50, 50, labelRadius, mid);
+      const textRotation = mid > 90 && mid < 270 ? mid + 180 : mid;
+      const lines = splitLabel(prize.name);
+      const plateWidth = 18;
+      const plateHeight = lines.length > 1 ? 8 : 6;
+      const textY = lines.length > 1 ? -1.2 : 0.8;
+      const chance = computeChance(prize.weight);
 
-        <section class="status-row" aria-label="Estado actual de la ruleta">
-          <article class="status-card">
-            <div class="status-label">Estado</div>
-            <output class="status-value" id="statusValue" aria-live="polite">Lista para girar</output>
-          </article>
+      return `
+        <g class="wheel-segment" data-index="${index}">
+          <path class="wheel-segment-path" d="${path}" fill="url(#seg-${index})"></path>
+          <g transform="translate(${point.x} ${point.y}) rotate(${textRotation})">
+            <rect class="wheel-segment-plate" x="-${plateWidth / 2}" y="-${plateHeight / 2}" width="${plateWidth}" height="${plateHeight}" rx="2.2"></rect>
+            <text class="wheel-segment-text" text-anchor="middle" dominant-baseline="middle" y="${textY}">
+              ${lines.map((line, lineIndex) => (
+                `<tspan x="0" dy="${lineIndex === 0 ? 0 : 3.4}">${line}</tspan>`
+              )).join("")}
+            </text>
+          </g>
+          <title>${prize.name} · ${chance}</title>
+        </g>
+      `;
+    }).join("");
 
-          <article class="status-card">
-            <div class="status-label">Última animación</div>
-            <output class="status-value" id="spinState" aria-live="polite">Esperando</output>
-          </article>
-        </section>
+    els.wheelSvg.innerHTML = `
+      ${defs}
+      <circle cx="50" cy="50" r="47.4" fill="rgba(255,255,255,.03)"></circle>
+      ${slices}
+      <circle cx="50" cy="50" r="14" fill="url(#wheelCenterGlow)"></circle>
+    `;
+  }
 
-        <section
-          class="winner winner--premium"
-          id="winnerBox"
-          aria-labelledby="winnerTitle"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <div class="info-label" id="winnerTitle">Resultado</div>
-          <div class="winner-main">Girá la ruleta</div>
-          <div class="winner-sub">Tu premio aparecerá aquí</div>
-          <div class="winner-badge">Sin resultado todavía</div>
-        </section>
+  function renderPrizeList() {
+    if (!els.prizeList || !els.prizeItemTemplate) return;
+    els.prizeList.innerHTML = "";
 
-        <section class="buy-card buy-card--premium" aria-labelledby="buySectionTitle">
-          <div class="section-head">
-            <div class="info-label" id="buySectionTitle">Comprar fichas</div>
-            <div class="chip">1 compra = 1 ficha</div>
-          </div>
+    state.prizes.forEach((prize, index) => {
+      const node = els.prizeItemTemplate.content.firstElementChild.cloneNode(true);
+      node.style.setProperty("--prize-accent", `linear-gradient(180deg, ${prize.colorA}, ${prize.colorB})`);
+      node.dataset.index = String(index);
 
-          <div class="buy-grid">
-            <article class="buy-box" aria-labelledby="buyArTitle">
-              <div class="buy-box-title" id="buyArTitle">Argentina</div>
-              <div class="buy-box-sub">
-                Pagá con Mercado Pago Argentina y luego tocá “Ya pagué” para registrar la compra.
-              </div>
-              <button
-                class="btn-pay"
-                id="payArBtn"
-                type="button"
-                data-country="AR"
-                data-payment-link="{{ mp_link_ar|default('', true)|e }}"
-                aria-label="Pagar ficha con Mercado Pago Argentina"
-              >
-                🇦🇷 Pagar Argentina
-              </button>
-            </article>
+      node.querySelector(".prize-name").textContent = prize.name;
+      node.querySelector(".prize-meta").textContent = prize.badge;
+      node.querySelector(".prize-price").textContent = prizePriceLabel(prize);
+      node.querySelector(".prize-chance").textContent = computeChance(prize.weight);
 
-            <article class="buy-box" aria-labelledby="buyUyTitle">
-              <div class="buy-box-title" id="buyUyTitle">Uruguay</div>
-              <div class="buy-box-sub">
-                Pagá con Mercado Pago Uruguay y luego tocá “Ya pagué” para que el admin te acredite la ficha.
-              </div>
-              <button
-                class="btn-pay"
-                id="payUyBtn"
-                type="button"
-                data-country="UY"
-                data-payment-link="{{ mp_link_uy|default('', true)|e }}"
-                aria-label="Pagar ficha con Mercado Pago Uruguay"
-              >
-                🇺🇾 Pagar Uruguay
-              </button>
-            </article>
-          </div>
-
-          <div class="btn-row" role="group" aria-label="Confirmación de pago">
-            <button
-              class="btn-secondary"
-              id="confirmArPaidBtn"
-              type="button"
-              data-country="AR"
-              aria-label="Confirmar pago realizado en Argentina"
-            >
-              ✅ Ya pagué en Argentina
-            </button>
-
-            <button
-              class="btn-secondary"
-              id="confirmUyPaidBtn"
-              type="button"
-              data-country="UY"
-              aria-label="Confirmar pago realizado en Uruguay"
-            >
-              ✅ Ya pagué en Uruguay
-            </button>
-          </div>
-
-          <div class="notice" role="note" id="paymentNotice">
-            Las compras quedan pendientes y luego el admin las aprueba. La demo funciona al instante y se muestra como vista previa.
-          </div>
-        </section>
-
-        <section aria-labelledby="visiblePrizesTitle">
-          <div class="section-head">
-            <div class="info-label" id="visiblePrizesTitle">Premios visibles</div>
-            <div class="chip" id="totalItemsChip" aria-live="polite">{{ prizes|length }} premios</div>
-          </div>
-
-          <div
-            class="prize-list"
-            id="prizeList"
-            role="list"
-            aria-live="polite"
-            aria-busy="false"
-            aria-label="Listado de premios visibles"
-          ></div>
-        </section>
-
-        <section class="transparency-card" aria-labelledby="transparencyTitle">
-          <div class="section-head">
-            <div class="info-label" id="transparencyTitle">Transparencia del modo</div>
-            <div class="chip" id="previewChip" aria-live="polite">{{ preview_label|default('Tirada real', true) }}</div>
-          </div>
-
-          <div class="notice" id="transparencyText" role="note">
-            {% if preview_notice|default('', true) %}
-              {{ preview_notice }}
-            {% else %}
-              Estás viendo la configuración real de la ruleta.
-            {% endif %}
-          </div>
-        </section>
-      </div>
-    </aside>
-  </main>
-
-  <div
-    class="modal-backdrop"
-    id="nameModal"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="nameModalTitle"
-    aria-describedby="nameModalDescription"
-    aria-hidden="true"
-  >
-    <div class="modal" role="document">
-      <h3 id="nameModalTitle">Bienvenido</h3>
-      <p id="nameModalDescription">
-        Escribí tu nombre para felicitarte cuando ganes y guardar tu perfil.
-      </p>
-
-      <div class="field">
-        <label for="playerNameInput">Tu nombre</label>
-        <input
-          id="playerNameInput"
-          type="text"
-          maxlength="40"
-          minlength="2"
-          placeholder="Ej: Gabriel"
-          inputmode="text"
-          autocomplete="name"
-          enterkeyhint="done"
-          spellcheck="false"
-          aria-describedby="nameModalDescription playerNameHelp"
-        >
-        <div class="field-help" id="playerNameHelp">Usá un nombre corto para mostrar en pantalla.</div>
-      </div>
-
-      <div class="modal-actions">
-        <button
-          class="btn-close"
-          id="skipNameBtn"
-          type="button"
-          aria-label="Continuar sin guardar nombre"
-        >
-          Seguir
-        </button>
-
-        <button
-          class="btn-save"
-          id="saveNameBtn"
-          type="button"
-          aria-label="Guardar nombre del jugador"
-        >
-          Guardar nombre
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <template id="prizeItemTemplate">
-    <article class="prize-item" role="listitem">
-      <div class="prize-item-main">
-        <div class="prize-item-name"></div>
-        <div class="prize-item-meta"></div>
-      </div>
-      <div class="prize-item-side">
-        <div class="prize-item-price"></div>
-        <div class="prize-item-chance"></div>
-      </div>
-    </article>
-  </template>
-
-  <script>
-    window.RULETA_CONFIG = Object.freeze({
-      prizes: {{ prizes|tojson }},
-      currency: {{ currency|tojson }},
-      user_id: {{ user_id|tojson }},
-      username: {{ username|tojson }},
-      full_name: {{ full_name|tojson }},
-      display_name: {{ display_name|tojson }},
-      fichas: {{ fichas|tojson }},
-      demo_spins_left: {{ demo_spins_left|tojson }},
-      uyu_to_ars: {{ uyu_to_ars|tojson }},
-      ticket_price_uyu: {{ ticket_price_uyu|tojson }},
-      ticket_price_label: {{ ticket_price|tojson }},
-      mp_link_ar: {{ mp_link_ar|tojson }},
-      mp_link_uy: {{ mp_link_uy|tojson }},
-      bot_name: {{ bot_name|tojson }},
-      preview_mode: {{ preview_mode|default('ticket', true)|tojson }},
-      preview_label: {{ preview_label|default('Tirada real', true)|tojson }},
-      preview_notice: {{ preview_notice|default('', true)|tojson }},
-      endpoints: Object.freeze({
-        config: "/api/config",
-        prizes: "/api/prizes",
-        profile: "/api/profile",
-        spin: "/api/spin",
-        purchase: "/api/purchase"
-      }),
-      payment_links: Object.freeze({
-        AR: {{ mp_link_ar|tojson }},
-        UY: {{ mp_link_uy|tojson }}
-      }),
-      ui: Object.freeze({
-        has_demo_notice: {{ (preview_notice|default('', true) != '')|tojson }},
-        transparent_demo: {{ ((preview_mode|default('ticket', true)) == 'demo')|tojson }}
-      }),
-      fx: Object.freeze({
-        confetti_primary_count: 260,
-        confetti_secondary_count: 140,
-        ball_scale: 1.35,
-        aura_boost: true
-      })
+      els.prizeList.appendChild(node);
     });
-  </script>
+  }
 
-  <script src="{{ url_for('static', filename='js/wheel.js') }}" defer></script>
-</body>
-</html>
+  function refreshPrizePrices() {
+    const items = els.prizeList?.querySelectorAll(".prize-item");
+    if (!items) return;
+    items.forEach((item, index) => {
+      const price = item.querySelector(".prize-price");
+      const chance = item.querySelector(".prize-chance");
+      if (price) price.textContent = prizePriceLabel(state.prizes[index]);
+      if (chance) chance.textContent = computeChance(state.prizes[index].weight);
+    });
+  }
+
+  function setActivePrize(index) {
+    state.activeIndex = index;
+
+    els.prizeList?.querySelectorAll(".prize-item").forEach((item, itemIndex) => {
+      item.classList.toggle("is-active", itemIndex === index);
+    });
+
+    els.wheelSvg?.querySelectorAll(".wheel-segment").forEach((seg, segIndex) => {
+      seg.classList.toggle("is-active", segIndex === index);
+    });
+  }
+
+  function weightedPick() {
+    let target = Math.random() * state.totalWeight;
+    for (let i = 0; i < state.prizes.length; i++) {
+      target -= state.prizes[i].weight;
+      if (target <= 0) return i;
+    }
+    return state.prizes.length - 1;
+  }
+
+  function computePointerIndex(rotation) {
+    const segmentAngle = 360 / state.prizes.length;
+    const normalized = normalizeAngle(360 - (rotation % 360));
+    return Math.floor((normalized + segmentAngle / 2) / segmentAngle) % state.prizes.length;
+  }
+
+  function positionBall(angleDeg, radiusFactor = 0.39, lift = 0, scaleY = 1) {
+    if (!els.wheelWrap || !els.ball || !els.ballShadow) return;
+
+    const size = els.wheelWrap.clientWidth;
+    const radius = size * radiusFactor;
+    const rad = (angleDeg - 90) * Math.PI / 180;
+    const x = Math.cos(rad) * radius;
+    const y = Math.sin(rad) * radius - lift;
+
+    els.ball.style.transform = `translate(-50%, -50%) translate3d(${x}px, ${y}px, 0) scale(1, ${scaleY})`;
+    els.ballShadow.style.transform = `translate(-50%, -50%) translate3d(${x}px, ${y + 14}px, 0) scale(${1 + lift * 0.012}, 1)`;
+    els.ballShadow.style.opacity = `${0.82 - clamp(lift / 26, 0, 0.45)}`;
+  }
+
+  function createAmbient() {
+    if (els.stars) {
+      const starCount = window.matchMedia("(max-width: 680px)").matches ? 34 : 80;
+      for (let i = 0; i < starCount; i++) {
+        const star = document.createElement("span");
+        star.className = "star";
+        star.style.left = `${Math.random() * 100}%`;
+        star.style.top = `${Math.random() * 100}%`;
+        star.style.animationDelay = `${Math.random() * 4}s`;
+        star.style.animationDuration = `${3 + Math.random() * 4}s`;
+        star.style.opacity = `${0.16 + Math.random() * 0.82}`;
+        els.stars.appendChild(star);
+      }
+    }
+
+    if (els.particles) {
+      const particleCount = window.matchMedia("(max-width: 680px)").matches ? 12 : 22;
+      for (let i = 0; i < particleCount; i++) {
+        const particle = document.createElement("span");
+        particle.className = "particle";
+        particle.style.left = `${Math.random() * 100}%`;
+        particle.style.bottom = `${-30 - Math.random() * 80}px`;
+        particle.style.animationDuration = `${7 + Math.random() * 8}s`;
+        particle.style.animationDelay = `${Math.random() * 6}s`;
+        els.particles.appendChild(particle);
+      }
+    }
+  }
+
+  function createLights() {
+    if (!els.lights) return;
+    const total = 28;
+    for (let i = 0; i < total; i++) {
+      const dot = document.createElement("span");
+      dot.className = "light-dot";
+      const angle = (i / total) * Math.PI * 2;
+      const radius = 47.2;
+      const x = 50 + Math.cos(angle) * radius;
+      const y = 50 + Math.sin(angle) * radius;
+      dot.style.left = `${x}%`;
+      dot.style.top = `${y}%`;
+      dot.style.animationDelay = `${(i * 0.08).toFixed(2)}s`;
+      els.lights.appendChild(dot);
+    }
+  }
+
+  function createConfettiBurst(count = 120) {
+    if (!els.confettiWrap) return;
+    const palette = ["#ffd85b", "#ff5d98", "#9964ff", "#22d194", "#ffffff", "#7ad8ff"];
+
+    for (let i = 0; i < count; i++) {
+      const piece = document.createElement("span");
+      piece.className = "confetti-piece";
+      piece.style.left = `${10 + Math.random() * 80}%`;
+      piece.style.top = `${-20 - Math.random() * 80}px`;
+      piece.style.background = palette[Math.floor(Math.random() * palette.length)];
+      piece.style.animationDuration = `${2.2 + Math.random() * 1.8}s`;
+      piece.style.setProperty("--dx", `${(Math.random() - 0.5) * 260}px`);
+      piece.style.setProperty("--rot", `${(Math.random() - 0.5) * 1100}deg`);
+      els.confettiWrap.appendChild(piece);
+      piece.addEventListener("animationend", () => piece.remove(), { once: true });
+    }
+  }
+
+  function persistNameLocally(name) {
+    try {
+      localStorage.setItem(storageKey, name);
+    } catch (_) {}
+  }
+
+  async function persistNameRemotely(name) {
+    const endpoint = safeText(config.endpoints.profile, "");
+    if (!endpoint) return;
+
+    try {
+      await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: config.userId,
+          username: config.username,
+          display_name: name,
+          full_name: name
+        })
+      });
+    } catch (_) {}
+  }
+
+  function applyPlayerName(name, persist = true) {
+    const clean = sanitizeName(name);
+    state.displayName = clean || "Jugador";
+    updateHeaderGreeting();
+    if (persist && clean) {
+      persistNameLocally(clean);
+      persistNameRemotely(clean);
+    }
+  }
+
+  function maybeOpenNameModal() {
+    if (state.firstOpenDone) return;
+    state.firstOpenDone = true;
+
+    let remembered = "";
+    try {
+      remembered = safeText(localStorage.getItem(storageKey), "");
+    } catch (_) {}
+
+    const initial = sanitizeName(remembered || config.displayName || config.fullName || "");
+    if (initial && initial.toLowerCase() !== "jugador") {
+      applyPlayerName(initial, false);
+      closeModal();
+      return;
+    }
+
+    applyPlayerName("Jugador", false);
+    setTimeout(openModal, 260);
+  }
+
+  async function submitPurchase(country) {
+    const endpoint = safeText(config.endpoints.purchase, "");
+    const payload = {
+      country,
+      user_id: config.userId,
+      username: config.username,
+      currency: state.currency
+    };
+
+    if (!endpoint) {
+      showToast("Compra marcada como pendiente");
+      return;
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error("No se pudo registrar la compra");
+      }
+
+      showToast("Pago informado. Quedó pendiente de aprobación.");
+    } catch (_) {
+      showToast("No se pudo registrar ahora. Avisá manualmente al admin.");
+    }
+  }
+
+  function normalizeName(text) {
+    return safeText(text).toLowerCase();
+  }
+
+  function findPrizeIndexFromResponse(data) {
+    const directIndex = safeInt(data?.index, -1);
+    if (directIndex >= 0 && directIndex < state.prizes.length) return directIndex;
+
+    const prizeIndex = safeInt(data?.prize_index, -1);
+    if (prizeIndex >= 0 && prizeIndex < state.prizes.length) return prizeIndex;
+
+    const prizeName = safeText(
+      data?.prize?.name ??
+      data?.result?.name ??
+      data?.name ??
+      data?.prize_name ??
+      data?.result,
+      ""
+    );
+
+    if (prizeName) {
+      const found = state.prizes.findIndex((item) => normalizeName(item.name) === normalizeName(prizeName));
+      if (found >= 0) return found;
+    }
+
+    return -1;
+  }
+
+  async function requestSpin(mode) {
+    const endpoint = safeText(config.endpoints.spin, "");
+    const fallbackIndex = weightedPick();
+
+    if (!endpoint) {
+      return { index: fallbackIndex, data: null, local: true };
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode,
+          user_id: config.userId,
+          username: config.username,
+          currency: state.currency
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Fallo la tirada");
+      }
+
+      const data = await response.json();
+      const index = findPrizeIndexFromResponse(data);
+      return {
+        index: index >= 0 ? index : fallbackIndex,
+        data,
+        local: false
+      };
+    } catch (_) {
+      return { index: fallbackIndex, data: null, local: true };
+    }
+  }
+
+  function syncServerCounters(data, mode) {
+    const nextFichas = Number(data?.fichas ?? data?.profile?.fichas);
+    const nextDemo = Number(data?.demo_spins_left ?? data?.profile?.demo_spins_left);
+
+    if (Number.isFinite(nextFichas)) {
+      state.fichas = nextFichas;
+    } else if (mode === "ticket") {
+      state.fichas = Math.max(0, state.fichas - 1);
+    }
+
+    if (Number.isFinite(nextDemo)) {
+      state.demoSpinsLeft = nextDemo;
+    } else if (mode === "demo") {
+      state.demoSpinsLeft = Math.max(0, state.demoSpinsLeft - 1);
+    }
+  }
+
+  function updateWinner(index, mode, localFallback = false) {
+    const prize = state.prizes[index];
+    const named = state.displayName && state.displayName !== "Jugador";
+    const prefix = named ? `${state.displayName}, ` : "";
+
+    if (els.winnerMain) {
+      els.winnerMain.textContent = prize.name;
+    }
+
+    if (els.winnerSub) {
+      els.winnerSub.textContent = `${prefix}felicitaciones. Ganaste ${prize.name}.`;
+    }
+
+    if (els.winnerBadge) {
+      els.winnerBadge.textContent = `${prize.badge} · ${prizePriceLabel(prize)}`;
+    }
+
+    if (localFallback) {
+      setStatus("Resultado visual listo", mode === "demo" ? "Demo local" : "Modo local");
+    } else {
+      setStatus("Premio confirmado", mode === "demo" ? "Demo confirmada" : "Tirada real");
+    }
+
+    setActivePrize(index);
+    createConfettiBurst(window.matchMedia("(max-width: 680px)").matches ? 70 : 140);
+    showToast(`${prefix}ganaste ${prize.name}`);
+  }
+
+  async function animateSpinTo(targetIndex) {
+    const segmentAngle = 360 / state.prizes.length;
+    const finalAngle = 360 - (targetIndex * segmentAngle + segmentAngle / 2);
+    const extraTurns = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 4 : 7 + Math.floor(Math.random() * 2);
+    const currentNormalized = normalizeAngle(state.currentRotation);
+    const delta = ((finalAngle - currentNormalized) + 360) % 360;
+    const startRotation = state.currentRotation;
+    const endRotation = state.currentRotation + extraTurns * 360 + delta;
+    const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 1800 : 5200;
+
+    return new Promise((resolve) => {
+      const started = performance.now();
+      let previousIndex = -1;
+
+      const frame = (now) => {
+        const progress = clamp((now - started) / duration, 0, 1);
+        const eased = easeOutQuint(progress);
+
+        state.currentRotation = startRotation + (endRotation - startRotation) * eased;
+        els.wheelSvg.style.transform = `rotate(${state.currentRotation}deg)`;
+
+        const highlightIndex = computePointerIndex(state.currentRotation);
+        if (highlightIndex !== previousIndex) {
+          previousIndex = highlightIndex;
+          setActivePrize(highlightIndex);
+        }
+
+        const freeAngle = normalizeAngle((1 - progress) * 1300);
+        const settleMix = progress > 0.82 ? (progress - 0.82) / 0.18 : 0;
+        const ballAngle = progress > 0.82 ? freeAngle * (1 - settleMix) : freeAngle;
+        const lift = Math.sin(progress * Math.PI) * 10 + Math.sin(now * 0.026) * (1 - progress) * 8;
+        const scaleY = 1 - Math.abs(Math.sin(progress * Math.PI)) * 0.06;
+        positionBall(ballAngle, 0.39 + (1 - progress) * 0.02, lift, scaleY);
+
+        if (progress < 1) {
+          requestAnimationFrame(frame);
+          return;
+        }
+
+        state.currentRotation = endRotation;
+        els.wheelSvg.style.transform = `rotate(${state.currentRotation}deg)`;
+        positionBall(0, 0.39, 0, 1);
+        setActivePrize(targetIndex);
+        resolve();
+      };
+
+      requestAnimationFrame(frame);
+    });
+  }
+
+  async function runSpin(mode) {
+    if (state.spinning) return;
+
+    if (mode === "ticket" && state.fichas <= 0) {
+      showToast("No tenés fichas. Comprá una para girar.");
+      document.querySelector(".purchase-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    if (mode === "demo" && state.demoSpinsLeft <= 0 && config.previewMode !== "demo") {
+      showToast("No te quedan demos por ahora.");
+      return;
+    }
+
+    state.spinning = true;
+    els.spinBtn.disabled = true;
+    els.demoBtn.disabled = true;
+    setStatus("Girando...", mode === "demo" ? "Demo en curso" : "Tirada en curso");
+
+    const result = await requestSpin(mode);
+    await animateSpinTo(result.index);
+
+    syncServerCounters(result.data, mode);
+    updateCounters();
+    refreshPrizePrices();
+    updateWinner(result.index, mode, result.local);
+
+    state.spinning = false;
+    els.spinBtn.disabled = false;
+    els.demoBtn.disabled = false;
+  }
+
+  function openPayment(country) {
+    const link = country === "AR" ? config.paymentLinks.AR : config.paymentLinks.UY;
+    if (!link) {
+      showToast("No hay link de pago configurado");
+      return;
+    }
+    window.open(link, "_blank", "noopener,noreferrer");
+  }
+
+  function bindEvents() {
+    els.spinBtn?.addEventListener("click", () => runSpin("ticket"));
+    els.demoBtn?.addEventListener("click", () => runSpin("demo"));
+
+    els.buyBtn?.addEventListener("click", () => {
+      document.querySelector(".purchase-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+
+    els.btnUyu?.addEventListener("click", () => {
+      state.currency = "UYU";
+      updateCurrencyButtons();
+      updateCounters();
+      refreshPrizePrices();
+      showToast("Mostrando valores en UYU");
+    });
+
+    els.btnArs?.addEventListener("click", () => {
+      state.currency = "ARS";
+      updateCurrencyButtons();
+      updateCounters();
+      refreshPrizePrices();
+      showToast("Mostrando valores en ARS");
+    });
+
+    els.payArBtn?.addEventListener("click", () => openPayment("AR"));
+    els.payUyBtn?.addEventListener("click", () => openPayment("UY"));
+
+    els.confirmArPaidBtn?.addEventListener("click", () => submitPurchase("AR"));
+    els.confirmUyPaidBtn?.addEventListener("click", () => submitPurchase("UY"));
+
+    els.saveNameBtn?.addEventListener("click", () => {
+      const name = sanitizeName(els.playerNameInput?.value ?? "");
+      if (name.length < 2) {
+        showToast("Escribí un nombre válido");
+        els.playerNameInput?.focus();
+        return;
+      }
+      applyPlayerName(name, true);
+      closeModal();
+      showToast(`Nombre guardado: ${name}`);
+    });
+
+    els.skipNameBtn?.addEventListener("click", () => {
+      closeModal();
+      showToast("Podés guardar tu nombre después recargando la página");
+    });
+
+    els.playerNameInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        els.saveNameBtn?.click();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeModal();
+      }
+    });
+
+    window.addEventListener("keydown", (event) => {
+      if (event.code === "Space" && !state.spinning) {
+        const tag = document.activeElement?.tagName;
+        if (!["INPUT", "TEXTAREA", "BUTTON"].includes(tag || "")) {
+          event.preventDefault();
+          runSpin("ticket");
+        }
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      if (!state.spinning) {
+        positionBall(0, 0.39, 0, 1);
+      }
+    });
+  }
+
+  function initState() {
+    state.prizes = config.prizes.map((prize, index) => normalizePrize(prize, index, config.uyuToArs));
+    state.totalWeight = state.prizes.reduce((sum, item) => sum + item.weight, 0);
+    state.displayName = sanitizeName(config.displayName || config.fullName || "");
+  }
+
+  function init() {
+    initState();
+    createAmbient();
+    createLights();
+    renderWheel();
+    renderPrizeList();
+    updateCurrencyButtons();
+    updateCounters();
+    applyPlayerName(state.displayName || "Jugador", false);
+    setStatus("Lista para girar", "Esperando");
+    positionBall(0, 0.39, 0, 1);
+    bindEvents();
+    maybeOpenNameModal();
+  }
+
+  document.addEventListener("DOMContentLoaded", init);
+})();

@@ -1,10 +1,45 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
-.env
-venv/
+*.so
+
+# Virtual environments
 .venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Flask / local instance
+instance/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/
+
+# Test / cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Local app data
+users_data.json
+pending_purchases.json
 spins_log.json
-*.zip
-*.exe

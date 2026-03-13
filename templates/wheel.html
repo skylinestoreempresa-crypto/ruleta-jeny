@@ -1,207 +1,481 @@
 <!doctype html>
-<html lang="es">
+<html lang="{{ language|default('es', true) }}" dir="ltr">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="x-ua-compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>{{ bot_name }}</title>
   <meta name="theme-color" content="#14030b">
+  <meta name="color-scheme" content="dark">
+  <meta name="format-detection" content="telephone=no,email=no,address=no">
+  <meta name="application-name" content="{{ bot_name|default('Ruleta Premium', true)|e }}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="{{ bot_name|default('Ruleta Premium', true)|e }}">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Ruleta premium estilo casino con premios, demo transparente, compra de fichas y experiencia inmersiva 3D.">
+  <meta name="robots" content="noindex,nofollow">
+  <title>{{ bot_name|default('Ruleta Premium', true) }} | Ruleta Premium</title>
+
+  <link rel="preload" href="{{ url_for('static', filename='css/wheel.css') }}" as="style">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/wheel.css') }}">
+  <link rel="preload" href="{{ url_for('static', filename='js/wheel.js') }}" as="script">
 </head>
-<body>
-  <div class="stars" id="stars"></div>
-  <div class="particles" id="particles"></div>
-  <div class="confetti-wrap" id="confettiWrap"></div>
-  <div class="toast" id="toast"></div>
+<body
+  class="app-body"
+  data-app="ruleta"
+  data-bot-name="{{ bot_name|default('Ruleta Premium', true)|e }}"
+  data-currency="{{ currency|default('UYU', true)|e }}"
+  data-user-id="{{ user_id|default('', true)|e }}"
+  data-username="{{ username|default('', true)|e }}"
+  data-display-name="{{ display_name|default('Jugador', true)|e }}"
+  data-preview-mode="{{ preview_mode|default('ticket', true)|e }}"
+  data-preview-label="{{ preview_label|default('Tirada real', true)|e }}"
+  data-preview-notice="{{ preview_notice|default('', true)|e }}"
+  data-ticket-price="{{ ticket_price|default('', true)|e }}"
+  data-mp-link-ar="{{ mp_link_ar|default('', true)|e }}"
+  data-mp-link-uy="{{ mp_link_uy|default('', true)|e }}"
+>
+  <a href="#mainContent" class="sr-only focusable">Saltar al contenido principal</a>
 
-  <div class="layout">
-    <div class="card" id="wheelCard">
-      <div class="spin-glow"></div>
+  <div class="stars" id="stars" aria-hidden="true"></div>
+  <div class="particles" id="particles" aria-hidden="true"></div>
+  <div class="confetti-wrap" id="confettiWrap" aria-hidden="true"></div>
 
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div class="sr-only" id="liveRegion" aria-live="polite" aria-atomic="true"></div>
+  <div class="sr-only" id="alertRegion" aria-live="assertive" aria-atomic="true"></div>
+
+  <div class="loading-layer" id="loadingLayer" aria-hidden="true">
+    <div class="loading-card" role="status" aria-live="polite" aria-label="Cargando ruleta">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <div class="loading-text">Preparando experiencia premium...</div>
+    </div>
+  </div>
+
+  <noscript>
+    <div class="card" style="margin:16px;">
       <div class="card-header">
-        <div class="top-meta">
-          <div class="title-badge">CASINO PREMIUM</div>
-          <div class="live-badge"><span class="live-dot"></span> Modo en vivo</div>
-        </div>
-
-        <h1 class="title"><span class="accent">Ruleta de Premios</span> Jeny</h1>
-
-        <div class="subtitle">
-          Diseño premium estilo casino con ruleta 3D, luces LED, pelotita animada, demo gratis, compra de fichas y premios reales.
-        </div>
-
-        <div class="promo-copy">
-          <strong>🎰 Comprá tu ficha y probá tu suerte</strong>
-          Girá por fotos, videos, packs, sexting y hasta un encuentro ultra raro. Cada compra suma 1 ficha. También tenés una demo gratis para probar la ruleta.
-        </div>
-
-        <div class="mini-stats">
-          <div class="mini-stat">
-            <div class="mini-stat-label">Valor ficha</div>
-            <div class="mini-stat-value" id="miniTicket"></div>
-          </div>
-          <div class="mini-stat">
-            <div class="mini-stat-label">Premios</div>
-            <div class="mini-stat-value" id="realPrizeCount"></div>
-          </div>
-          <div class="mini-stat">
-            <div class="mini-stat-label">Tus fichas</div>
-            <div class="mini-stat-value" id="miniFichas">0</div>
-          </div>
-          <div class="mini-stat">
-            <div class="mini-stat-label">Demo</div>
-            <div class="mini-stat-value" id="miniDemo">0</div>
-          </div>
-        </div>
+        <h1 class="title">{{ bot_name|default('Ruleta Premium', true) }}</h1>
+        <div class="subtitle">Esta ruleta necesita JavaScript activado para funcionar correctamente.</div>
+        <p class="promo-copy">Podés activarlo y volver a entrar para usar la demo, comprar fichas y girar la ruleta.</p>
       </div>
+    </div>
+  </noscript>
+
+  <main class="layout" id="mainContent">
+    <section class="card" id="wheelCard" aria-labelledby="pageTitle">
+      <div class="spin-glow" aria-hidden="true"></div>
+
+      <header class="card-header">
+        <div class="top-meta">
+          <div class="title-badge" aria-label="Experiencia casino premium">CASINO PREMIUM</div>
+
+          <div
+            class="mode-badge {% if (preview_mode|default('ticket', true)) == 'demo' %}is-demo{% else %}is-real{% endif %}"
+            id="modeBadge"
+            aria-live="polite"
+          >
+            <span class="mode-badge-dot" aria-hidden="true"></span>
+            <span id="modeBadgeText">{{ preview_label|default('Tirada real', true) }}</span>
+          </div>
+
+          <div class="live-badge" aria-label="Modo visual activo">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span>Modo en vivo</span>
+          </div>
+        </div>
+
+        <h1 class="title" id="pageTitle">
+          <span class="accent">Ruleta de Premios</span>
+          <span class="brand-name">{{ bot_name|default('Jeny', true) }}</span>
+        </h1>
+
+        <p class="subtitle" id="pageSubtitle">
+          Diseño premium estilo casino con ruleta 3D, luces LED, pelotita animada, demo transparente, compra de fichas y premios visibles.
+        </p>
+
+        {% if preview_notice|default('', true) %}
+        <div
+          class="demo-notice-banner"
+          id="demoNoticeBanner"
+          role="note"
+          aria-label="Aviso de transparencia del modo demo"
+        >
+          <strong>{{ preview_label|default('Demo', true) }}:</strong>
+          <span id="demoNoticeText">{{ preview_notice }}</span>
+        </div>
+        {% endif %}
+
+        <p class="promo-copy">
+          <strong>🎰 Comprá tu ficha y probá tu suerte</strong>
+          Girá por packs, videos, bundles y premios especiales. La demo sirve para ver la experiencia y la versión con ficha usa la tirada real.
+        </p>
+
+        <section class="mini-stats" aria-label="Resumen rápido de la ruleta">
+          <article class="mini-stat">
+            <div class="mini-stat-label">Valor ficha</div>
+            <output class="mini-stat-value" id="miniTicket" aria-live="polite">{{ ticket_price|default('', true) }}</output>
+          </article>
+
+          <article class="mini-stat">
+            <div class="mini-stat-label">Premios</div>
+            <output class="mini-stat-value" id="realPrizeCount" aria-live="polite">{{ prizes|length }}</output>
+          </article>
+
+          <article class="mini-stat">
+            <div class="mini-stat-label">Tus fichas</div>
+            <output class="mini-stat-value" id="miniFichas" aria-live="polite">{{ fichas|default(0, true) }}</output>
+          </article>
+
+          <article class="mini-stat">
+            <div class="mini-stat-label">Demo</div>
+            <output class="mini-stat-value" id="miniDemo" aria-live="polite">{{ demo_spins_left|default(0, true) }}</output>
+          </article>
+        </section>
+      </header>
 
       <div class="card-body">
-        <div class="wheel-stage">
-          <div class="wheel-wrap">
-            <div class="wheel-floor"></div>
-            <div class="wheel-aura"></div>
-            <div class="halo-ring"></div>
-            <div class="halo-ring two"></div>
-            <div class="wheel-outer-metal"></div>
-            <div class="wheel-reflection"></div>
+        <section class="wheel-stage" aria-labelledby="wheelAreaTitle">
+          <h2 class="sr-only" id="wheelAreaTitle">Área principal de la ruleta</h2>
 
-            <div class="pointer-wrap">
+          <div
+            class="wheel-wrap"
+            id="wheelWrap"
+            role="img"
+            aria-label="Ruleta de premios estilo casino con puntero y pelota animada"
+          >
+            <div class="wheel-floor" aria-hidden="true"></div>
+            <div class="wheel-aura" aria-hidden="true"></div>
+            <div class="halo-ring" aria-hidden="true"></div>
+            <div class="halo-ring two" aria-hidden="true"></div>
+            <div class="wheel-outer-metal" aria-hidden="true"></div>
+            <div class="wheel-reflection" aria-hidden="true"></div>
+
+            <div class="pointer-wrap" aria-hidden="true">
               <div class="pointer-cap"></div>
               <div class="pointer" id="pointer"></div>
             </div>
 
             <div class="wheel-shell">
-              <div class="wheel-inner-ring"></div>
-              <div class="wheel-depth"></div>
-              <svg id="wheelSvg" class="wheel" viewBox="0 0 100 100" aria-hidden="true"></svg>
-              <div class="wheel-gloss"></div>
+              <div class="wheel-inner-ring" aria-hidden="true"></div>
+              <div class="wheel-depth" aria-hidden="true"></div>
+
+              <svg
+                id="wheelSvg"
+                class="wheel"
+                viewBox="0 0 100 100"
+                role="img"
+                aria-label="Ruleta interactiva de premios"
+                focusable="false"
+              ></svg>
+
+              <div class="wheel-gloss" aria-hidden="true"></div>
             </div>
 
-            <div class="ball-track" id="ballTrack">
+            <div class="ball-track" id="ballTrack" aria-hidden="true">
               <div class="ball" id="ball"></div>
             </div>
 
-            <div class="wheel-center"></div>
-            <div class="lights" id="lights"></div>
+            <div class="wheel-center" aria-hidden="true"></div>
+            <div class="lights" id="lights" aria-hidden="true"></div>
           </div>
-        </div>
+        </section>
 
-        <div class="controls">
-          <button id="spinBtn" class="btn" type="button">🎰 GIRAR CON FICHA</button>
-          <div class="btn-row">
-            <button id="demoBtn" class="btn-demo" type="button">🆓 TIRADA DEMO</button>
-            <button id="buyBtn" class="btn-pay" type="button">💳 COMPRAR FICHA</button>
+        <section class="controls" aria-labelledby="controlsTitle">
+          <h2 class="sr-only" id="controlsTitle">Controles de la ruleta</h2>
+
+          <button
+            id="spinBtn"
+            class="btn"
+            type="button"
+            data-action="spin-ticket"
+            aria-label="Girar la ruleta usando una ficha"
+            aria-controls="wheelSvg winnerBox statusValue spinState"
+          >
+            🎰 GIRAR CON FICHA
+          </button>
+
+          <div class="btn-row" role="group" aria-label="Acciones principales">
+            <button
+              id="demoBtn"
+              class="btn-demo"
+              type="button"
+              data-action="spin-demo"
+              aria-label="Probar una tirada demo"
+              aria-controls="wheelSvg winnerBox statusValue spinState"
+            >
+              🆓 TIRADA DEMO
+            </button>
+
+            <button
+              id="buyBtn"
+              class="btn-pay"
+              type="button"
+              data-action="buy-ticket"
+              aria-label="Comprar una ficha"
+              aria-controls="ticketPrice"
+            >
+              💳 COMPRAR FICHA
+            </button>
           </div>
+
           <div class="btn-subline">suerte • brillo • premios • casino premium</div>
-          <div class="info-label">Valor de la ficha</div>
-          <div class="ticket" id="ticketPrice"></div>
-          <div class="footer-note">{{ bot_name }} • premium • casino style • 3D</div>
-        </div>
-      </div>
-    </div>
 
-    <div class="card">
-      <div class="card-header">
-        <div class="panel-top">
-          <h2 class="small-title">Panel</h2>
-          <div class="chip" id="currencyChip">Moneda {{ currency }}</div>
-        </div>
+          <div class="info-label">Valor de la ficha</div>
+          <output class="ticket" id="ticketPrice" aria-live="polite">{{ ticket_price|default('', true) }}</output>
+
+          <div class="action-help" id="actionHelp" role="note">
+            La demo muestra la experiencia visual. La tirada con ficha usa el modo real.
+          </div>
+
+          <div class="footer-note">
+            {{ bot_name|default('Ruleta Premium', true) }} • premium • casino style • 3D
+          </div>
+        </section>
       </div>
+    </section>
+
+    <aside class="card" aria-labelledby="panelTitle">
+      <header class="card-header">
+        <div class="panel-top">
+          <h2 class="small-title" id="panelTitle">Panel</h2>
+          <div class="chip" id="currencyChip" aria-live="polite">Moneda {{ currency|default('UYU', true) }}</div>
+        </div>
+      </header>
 
       <div class="card-body panel">
-        <div class="profile-row">
-          <div class="status-card">
+        <section class="profile-row" aria-label="Resumen del jugador">
+          <article class="status-card">
             <div class="status-label">Jugador</div>
-            <div class="status-value" id="playerNameText">Jugador</div>
-          </div>
-          <div class="status-card">
+            <output class="status-value" id="playerNameText" aria-live="polite">{{ display_name|default('Jugador', true) }}</output>
+          </article>
+
+          <article class="status-card">
             <div class="status-label">Saldo</div>
-            <div class="status-value" id="fichasValue">0 fichas</div>
-          </div>
+            <output class="status-value" id="fichasValue" aria-live="polite">{{ fichas|default(0, true) }} fichas</output>
+          </article>
+        </section>
+
+        <div class="pill-row" role="group" aria-label="Selector de moneda visual">
+          <button
+            class="pill {% if currency|default('UYU', true) == 'UYU' %}is-active{% endif %}"
+            id="btnUyu"
+            type="button"
+            aria-label="Mostrar valores en pesos uruguayos"
+            aria-pressed="{% if currency|default('UYU', true) == 'UYU' %}true{% else %}false{% endif %}"
+          >
+            🇺🇾 Mostrar UYU
+          </button>
+
+          <button
+            class="pill {% if currency|default('UYU', true) == 'ARS' %}is-active{% endif %}"
+            id="btnArs"
+            type="button"
+            aria-label="Mostrar valores en pesos argentinos"
+            aria-pressed="{% if currency|default('UYU', true) == 'ARS' %}true{% else %}false{% endif %}"
+          >
+            🇦🇷 Mostrar ARS
+          </button>
         </div>
 
-        <div class="pill-row">
-          <button class="pill" id="btnUyu" type="button">🇺🇾 Mostrar UYU</button>
-          <button class="pill" id="btnArs" type="button">🇦🇷 Mostrar ARS</button>
-        </div>
-
-        <div class="status-row">
-          <div class="status-card">
+        <section class="status-row" aria-label="Estado actual de la ruleta">
+          <article class="status-card">
             <div class="status-label">Estado</div>
-            <div class="status-value" id="statusValue">Lista para girar</div>
-          </div>
-          <div class="status-card">
-            <div class="status-label">Última animación</div>
-            <div class="status-value" id="spinState">Esperando</div>
-          </div>
-        </div>
+            <output class="status-value" id="statusValue" aria-live="polite">Lista para girar</output>
+          </article>
 
-        <div class="winner" id="winnerBox">
-          <div class="info-label">Resultado</div>
-          <div class="winner-main">Gira la ruleta</div>
+          <article class="status-card">
+            <div class="status-label">Última animación</div>
+            <output class="status-value" id="spinState" aria-live="polite">Esperando</output>
+          </article>
+        </section>
+
+        <section
+          class="winner"
+          id="winnerBox"
+          aria-labelledby="winnerTitle"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <div class="info-label" id="winnerTitle">Resultado</div>
+          <div class="winner-main">Girá la ruleta</div>
           <div class="winner-sub">Tu premio aparecerá aquí</div>
           <div class="winner-badge">Sin resultado todavía</div>
-        </div>
+        </section>
 
-        <div class="buy-card">
+        <section class="buy-card" aria-labelledby="buySectionTitle">
           <div class="section-head">
-            <div class="info-label">Comprar fichas</div>
+            <div class="info-label" id="buySectionTitle">Comprar fichas</div>
             <div class="chip">1 compra = 1 ficha</div>
           </div>
 
           <div class="buy-grid">
-            <div class="buy-box">
-              <div class="buy-box-title">Argentina</div>
-              <div class="buy-box-sub">Pagá con Mercado Pago Argentina y luego tocá “Ya pagué” para registrar la compra.</div>
-              <button class="btn-pay" id="payArBtn" type="button">🇦🇷 Pagar Argentina</button>
-            </div>
-            <div class="buy-box">
-              <div class="buy-box-title">Uruguay</div>
-              <div class="buy-box-sub">Pagá con Mercado Pago Uruguay y luego tocá “Ya pagué” para que el admin te acredite la ficha.</div>
-              <button class="btn-pay" id="payUyBtn" type="button">🇺🇾 Pagar Uruguay</button>
-            </div>
+            <article class="buy-box" aria-labelledby="buyArTitle">
+              <div class="buy-box-title" id="buyArTitle">Argentina</div>
+              <div class="buy-box-sub">
+                Pagá con Mercado Pago Argentina y luego tocá “Ya pagué” para registrar la compra.
+              </div>
+              <button
+                class="btn-pay"
+                id="payArBtn"
+                type="button"
+                data-country="AR"
+                data-payment-link="{{ mp_link_ar|default('', true)|e }}"
+                aria-label="Pagar ficha con Mercado Pago Argentina"
+              >
+                🇦🇷 Pagar Argentina
+              </button>
+            </article>
+
+            <article class="buy-box" aria-labelledby="buyUyTitle">
+              <div class="buy-box-title" id="buyUyTitle">Uruguay</div>
+              <div class="buy-box-sub">
+                Pagá con Mercado Pago Uruguay y luego tocá “Ya pagué” para que el admin te acredite la ficha.
+              </div>
+              <button
+                class="btn-pay"
+                id="payUyBtn"
+                type="button"
+                data-country="UY"
+                data-payment-link="{{ mp_link_uy|default('', true)|e }}"
+                aria-label="Pagar ficha con Mercado Pago Uruguay"
+              >
+                🇺🇾 Pagar Uruguay
+              </button>
+            </article>
           </div>
 
-          <div class="btn-row">
-            <button class="btn-secondary" id="confirmArPaidBtn" type="button">✅ Ya pagué en Argentina</button>
-            <button class="btn-secondary" id="confirmUyPaidBtn" type="button">✅ Ya pagué en Uruguay</button>
+          <div class="btn-row" role="group" aria-label="Confirmación de pago">
+            <button
+              class="btn-secondary"
+              id="confirmArPaidBtn"
+              type="button"
+              data-country="AR"
+              aria-label="Confirmar pago realizado en Argentina"
+            >
+              ✅ Ya pagué en Argentina
+            </button>
+
+            <button
+              class="btn-secondary"
+              id="confirmUyPaidBtn"
+              type="button"
+              data-country="UY"
+              aria-label="Confirmar pago realizado en Uruguay"
+            >
+              ✅ Ya pagué en Uruguay
+            </button>
           </div>
 
-          <div class="notice">
-            Las compras quedan como pendientes y luego el admin las aprueba desde Telegram. La demo funciona al instante.
+          <div class="notice" role="note" id="paymentNotice">
+            Las compras quedan pendientes y luego el admin las aprueba. La demo funciona al instante y se muestra como vista previa.
           </div>
-        </div>
+        </section>
 
-        <div>
+        <section aria-labelledby="visiblePrizesTitle">
           <div class="section-head">
-            <div class="info-label">Premios visibles</div>
-            <div class="chip" id="totalItemsChip"></div>
+            <div class="info-label" id="visiblePrizesTitle">Premios visibles</div>
+            <div class="chip" id="totalItemsChip" aria-live="polite">{{ prizes|length }} premios</div>
           </div>
-          <div class="prize-list" id="prizeList"></div>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <div class="modal-backdrop" id="nameModal">
-    <div class="modal">
-      <h3>Bienvenido</h3>
-      <p>Escribí tu nombre para felicitarte cuando ganes y guardar tu perfil.</p>
+          <div
+            class="prize-list"
+            id="prizeList"
+            role="list"
+            aria-live="polite"
+            aria-busy="false"
+            aria-label="Listado de premios visibles"
+          ></div>
+        </section>
+
+        <section class="transparency-card" aria-labelledby="transparencyTitle">
+          <div class="section-head">
+            <div class="info-label" id="transparencyTitle">Transparencia del modo</div>
+            <div class="chip" id="previewChip" aria-live="polite">{{ preview_label|default('Tirada real', true) }}</div>
+          </div>
+
+          <div class="notice" id="transparencyText" role="note">
+            {% if preview_notice|default('', true) %}
+              {{ preview_notice }}
+            {% else %}
+              Estás viendo la configuración real de la ruleta.
+            {% endif %}
+          </div>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <div
+    class="modal-backdrop"
+    id="nameModal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="nameModalTitle"
+    aria-describedby="nameModalDescription"
+    aria-hidden="true"
+  >
+    <div class="modal" role="document">
+      <h3 id="nameModalTitle">Bienvenido</h3>
+      <p id="nameModalDescription">
+        Escribí tu nombre para felicitarte cuando ganes y guardar tu perfil.
+      </p>
+
       <div class="field">
         <label for="playerNameInput">Tu nombre</label>
-        <input id="playerNameInput" type="text" maxlength="40" placeholder="Ej: Gabriel">
+        <input
+          id="playerNameInput"
+          type="text"
+          maxlength="40"
+          minlength="2"
+          placeholder="Ej: Gabriel"
+          inputmode="text"
+          autocomplete="name"
+          enterkeyhint="done"
+          spellcheck="false"
+          aria-describedby="nameModalDescription playerNameHelp"
+        >
+        <div class="field-help" id="playerNameHelp">Usá un nombre corto para mostrar en pantalla.</div>
       </div>
+
       <div class="modal-actions">
-        <button class="btn-close" id="skipNameBtn" type="button">Seguir</button>
-        <button class="btn-save" id="saveNameBtn" type="button">Guardar nombre</button>
+        <button
+          class="btn-close"
+          id="skipNameBtn"
+          type="button"
+          aria-label="Continuar sin guardar nombre"
+        >
+          Seguir
+        </button>
+
+        <button
+          class="btn-save"
+          id="saveNameBtn"
+          type="button"
+          aria-label="Guardar nombre del jugador"
+        >
+          Guardar nombre
+        </button>
       </div>
     </div>
   </div>
 
-  <div class="sr-only" aria-live="polite" id="liveRegion"></div>
+  <template id="prizeItemTemplate">
+    <article class="prize-item" role="listitem">
+      <div class="prize-item-main">
+        <div class="prize-item-name"></div>
+        <div class="prize-item-meta"></div>
+      </div>
+      <div class="prize-item-side">
+        <div class="prize-item-price"></div>
+        <div class="prize-item-chance"></div>
+      </div>
+    </article>
+  </template>
 
   <script>
-    window.RULETA_CONFIG = {
-      prizes: {{ prizes|safe }},
+    window.RULETA_CONFIG = Object.freeze({
+      prizes: {{ prizes|tojson }},
       currency: {{ currency|tojson }},
       user_id: {{ user_id|tojson }},
       username: {{ username|tojson }},
@@ -211,10 +485,31 @@
       demo_spins_left: {{ demo_spins_left|tojson }},
       uyu_to_ars: {{ uyu_to_ars|tojson }},
       ticket_price_uyu: {{ ticket_price_uyu|tojson }},
+      ticket_price_label: {{ ticket_price|tojson }},
       mp_link_ar: {{ mp_link_ar|tojson }},
-      mp_link_uy: {{ mp_link_uy|tojson }}
-    };
+      mp_link_uy: {{ mp_link_uy|tojson }},
+      bot_name: {{ bot_name|tojson }},
+      preview_mode: {{ preview_mode|default('ticket', true)|tojson }},
+      preview_label: {{ preview_label|default('Tirada real', true)|tojson }},
+      preview_notice: {{ preview_notice|default('', true)|tojson }},
+      endpoints: Object.freeze({
+        config: "/api/config",
+        prizes: "/api/prizes",
+        profile: "/api/profile",
+        spin: "/api/spin",
+        purchase: "/api/purchase"
+      }),
+      payment_links: Object.freeze({
+        AR: {{ mp_link_ar|tojson }},
+        UY: {{ mp_link_uy|tojson }}
+      }),
+      ui: Object.freeze({
+        has_demo_notice: {{ (preview_notice|default('', true) != '')|tojson }},
+        transparent_demo: {{ ((preview_mode|default('ticket', true)) == 'demo')|tojson }}
+      })
+    });
   </script>
-  <script src="{{ url_for('static', filename='js/wheel.js') }}"></script>
+
+  <script src="{{ url_for('static', filename='js/wheel.js') }}" defer></script>
 </body>
 </html>

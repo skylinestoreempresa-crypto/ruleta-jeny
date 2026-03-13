@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>{{ bot_name }}</title>
+  <meta name="theme-color" content="#14030b">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/wheel.css') }}">
+</head>
+<body>
+  <div class="stars" id="stars"></div>
+  <div class="particles" id="particles"></div>
+  <div class="confetti-wrap" id="confettiWrap"></div>
+  <div class="toast" id="toast"></div>
+
+  <div class="layout">
+    <div class="card" id="wheelCard">
+      <div class="spin-glow"></div>
+
+      <div class="card-header">
+        <div class="top-meta">
+          <div class="title-badge">CASINO PREMIUM</div>
+          <div class="live-badge"><span class="live-dot"></span> Modo en vivo</div>
+        </div>
+
+        <h1 class="title"><span class="accent">Ruleta de Premios</span> Jeny</h1>
+
+        <div class="subtitle">
+          Diseño premium estilo casino con ruleta 3D, luces LED, pelotita animada, demo gratis, compra de fichas y premios reales.
+        </div>
+
+        <div class="promo-copy">
+          <strong>🎰 Comprá tu ficha y probá tu suerte</strong>
+          Girá por fotos, videos, packs, sexting y hasta un encuentro ultra raro. Cada compra suma 1 ficha. También tenés una demo gratis para probar la ruleta.
+        </div>
+
+        <div class="mini-stats">
+          <div class="mini-stat">
+            <div class="mini-stat-label">Valor ficha</div>
+            <div class="mini-stat-value" id="miniTicket"></div>
+          </div>
+          <div class="mini-stat">
+            <div class="mini-stat-label">Premios</div>
+            <div class="mini-stat-value" id="realPrizeCount"></div>
+          </div>
+          <div class="mini-stat">
+            <div class="mini-stat-label">Tus fichas</div>
+            <div class="mini-stat-value" id="miniFichas">0</div>
+          </div>
+          <div class="mini-stat">
+            <div class="mini-stat-label">Demo</div>
+            <div class="mini-stat-value" id="miniDemo">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-body">
+        <div class="wheel-stage">
+          <div class="wheel-wrap">
+            <div class="wheel-floor"></div>
+            <div class="wheel-aura"></div>
+            <div class="halo-ring"></div>
+            <div class="halo-ring two"></div>
+            <div class="wheel-outer-metal"></div>
+            <div class="wheel-reflection"></div>
+
+            <div class="pointer-wrap">
+              <div class="pointer-cap"></div>
+              <div class="pointer" id="pointer"></div>
+            </div>
+
+            <div class="wheel-shell">
+              <div class="wheel-inner-ring"></div>
+              <div class="wheel-depth"></div>
+              <svg id="wheelSvg" class="wheel" viewBox="0 0 100 100" aria-hidden="true"></svg>
+              <div class="wheel-gloss"></div>
+            </div>
+
+            <div class="ball-track" id="ballTrack">
+              <div class="ball" id="ball"></div>
+            </div>
+
+            <div class="wheel-center"></div>
+            <div class="lights" id="lights"></div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="spinBtn" class="btn" type="button">🎰 GIRAR CON FICHA</button>
+          <div class="btn-row">
+            <button id="demoBtn" class="btn-demo" type="button">🆓 TIRADA DEMO</button>
+            <button id="buyBtn" class="btn-pay" type="button">💳 COMPRAR FICHA</button>
+          </div>
+          <div class="btn-subline">suerte • brillo • premios • casino premium</div>
+          <div class="info-label">Valor de la ficha</div>
+          <div class="ticket" id="ticketPrice"></div>
+          <div class="footer-note">{{ bot_name }} • premium • casino style • 3D</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="panel-top">
+          <h2 class="small-title">Panel</h2>
+          <div class="chip" id="currencyChip">Moneda {{ currency }}</div>
+        </div>
+      </div>
+
+      <div class="card-body panel">
+        <div class="profile-row">
+          <div class="status-card">
+            <div class="status-label">Jugador</div>
+            <div class="status-value" id="playerNameText">Jugador</div>
+          </div>
+          <div class="status-card">
+            <div class="status-label">Saldo</div>
+            <div class="status-value" id="fichasValue">0 fichas</div>
+          </div>
+        </div>
+
+        <div class="pill-row">
+          <button class="pill" id="btnUyu" type="button">🇺🇾 Mostrar UYU</button>
+          <button class="pill" id="btnArs" type="button">🇦🇷 Mostrar ARS</button>
+        </div>
+
+        <div class="status-row">
+          <div class="status-card">
+            <div class="status-label">Estado</div>
+            <div class="status-value" id="statusValue">Lista para girar</div>
+          </div>
+          <div class="status-card">
+            <div class="status-label">Última animación</div>
+            <div class="status-value" id="spinState">Esperando</div>
+          </div>
+        </div>
+
+        <div class="winner" id="winnerBox">
+          <div class="info-label">Resultado</div>
+          <div class="winner-main">Gira la ruleta</div>
+          <div class="winner-sub">Tu premio aparecerá aquí</div>
+          <div class="winner-badge">Sin resultado todavía</div>
+        </div>
+
+        <div class="buy-card">
+          <div class="section-head">
+            <div class="info-label">Comprar fichas</div>
+            <div class="chip">1 compra = 1 ficha</div>
+          </div>
+
+          <div class="buy-grid">
+            <div class="buy-box">
+              <div class="buy-box-title">Argentina</div>
+              <div class="buy-box-sub">Pagá con Mercado Pago Argentina y luego tocá “Ya pagué” para registrar la compra.</div>
+              <button class="btn-pay" id="payArBtn" type="button">🇦🇷 Pagar Argentina</button>
+            </div>
+            <div class="buy-box">
+              <div class="buy-box-title">Uruguay</div>
+              <div class="buy-box-sub">Pagá con Mercado Pago Uruguay y luego tocá “Ya pagué” para que el admin te acredite la ficha.</div>
+              <button class="btn-pay" id="payUyBtn" type="button">🇺🇾 Pagar Uruguay</button>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-secondary" id="confirmArPaidBtn" type="button">✅ Ya pagué en Argentina</button>
+            <button class="btn-secondary" id="confirmUyPaidBtn" type="button">✅ Ya pagué en Uruguay</button>
+          </div>
+
+          <div class="notice">
+            Las compras quedan como pendientes y luego el admin las aprueba desde Telegram. La demo funciona al instante.
+          </div>
+        </div>
+
+        <div>
+          <div class="section-head">
+            <div class="info-label">Premios visibles</div>
+            <div class="chip" id="totalItemsChip"></div>
+          </div>
+          <div class="prize-list" id="prizeList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="nameModal">
+    <div class="modal">
+      <h3>Bienvenido</h3>
+      <p>Escribí tu nombre para felicitarte cuando ganes y guardar tu perfil.</p>
+      <div class="field">
+        <label for="playerNameInput">Tu nombre</label>
+        <input id="playerNameInput" type="text" maxlength="40" placeholder="Ej: Gabriel">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-close" id="skipNameBtn" type="button">Seguir</button>
+        <button class="btn-save" id="saveNameBtn" type="button">Guardar nombre</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sr-only" aria-live="polite" id="liveRegion"></div>
+
+  <script>
+    window.RULETA_CONFIG = {
+      prizes: {{ prizes|safe }},
+      currency: {{ currency|tojson }},
+      user_id: {{ user_id|tojson }},
+      username: {{ username|tojson }},
+      full_name: {{ full_name|tojson }},
+      display_name: {{ display_name|tojson }},
+      fichas: {{ fichas|tojson }},
+      demo_spins_left: {{ demo_spins_left|tojson }},
+      uyu_to_ars: {{ uyu_to_ars|tojson }},
+      ticket_price_uyu: {{ ticket_price_uyu|tojson }},
+      mp_link_ar: {{ mp_link_ar|tojson }},
+      mp_link_uy: {{ mp_link_uy|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/wheel.js') }}"></script>
+</body>
+</html>

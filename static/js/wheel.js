@@ -1,17 +1,47 @@
 (() => {
   "use strict";
 
+  const APP_VERSION = "2.0.0";
+  const DEFAULTS = Object.freeze({
+    currency: "UYU",
+    displayName: "Jugador",
+    botName: "Ruleta Premium",
+    ticketPriceUyu: 250,
+    uyuToArs: 25,
+    spinDurationMs: 6200,
+    reducedSpinDurationMs: 1400,
+    requestTimeoutMs: 12000,
+    toastDurationMs: 2400,
+    errorToastDurationMs: 3200,
+    wheelRadius: 47.8,
+    wheelCenter: 50,
+    idleBallRadius: 42,
+    finalBallRadius: 38.4,
+    touchBallRadius: 41.4,
+    confettiCount: 180,
+    reducedConfettiCount: 36,
+  });
+
+  const API_PATHS = Object.freeze({
+    spin: ["/api/spin"],
+    profile: ["/api/user/sync", "/api/profile-sync", "/api/profile"],
+    purchase: ["/api/purchase", "/api/create-pending-purchase"],
+  });
+
   const rawConfig = window.RULETA_CONFIG || {};
+  const doc = document;
+  const root = doc.documentElement;
+  const body = doc.body;
 
   const clampInt = (value, fallback = 0, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY) => {
-    const num = Number.parseInt(value, 10);
-    const safe = Number.isFinite(num) ? num : fallback;
+    const parsed = Number.parseInt(value, 10);
+    const safe = Number.isFinite(parsed) ? parsed : fallback;
     return Math.min(max, Math.max(min, safe));
   };
 
   const clampFloat = (value, fallback = 0, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY) => {
-    const num = Number.parseFloat(value);
-    const safe = Number.isFinite(num) ? num : fallback;
+    const parsed = Number.parseFloat(value);
+    const safe = Number.isFinite(parsed) ? parsed : fallback;
     return Math.min(max, Math.max(min, safe));
   };
 
@@ -20,12 +50,26 @@
     return text || fallback;
   };
 
+  const normalizeLoose = (value) =>
+    normalizeText(value)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+
   const normalizeCurrency = (value) => {
-    const curr = normalizeText(value, "UYU").toUpperCase();
-    return curr === "ARS" ? "ARS" : "UYU";
+    const normalized = normalizeText(value, DEFAULTS.currency).toUpperCase();
+    return normalized === "ARS" ? "ARS" : "UYU";
   };
 
-  const normalizeDisplayName = (value) => normalizeText(value, "Jugador").slice(0, 40);
+  const normalizeDisplayName = (value) => normalizeText(value, DEFAULTS.displayName).slice(0, 40);
+
+  const safeJsonParse = (value, fallback = null) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  };
 
   const escapeHtml = (value) =>
     String(value ?? "")
@@ -34,11 +78,6 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
-
-  const shortLabel = (value, maxLen = 18) => {
-    const chars = Array.from(normalizeText(value));
-    return chars.length > maxLen ? `${chars.slice(0, maxLen).join("")}…` : chars.join("");
-  };
 
   const splitName = (value) => {
     const clean = normalizeText(value);
@@ -50,13 +89,58 @@
     };
   };
 
-  const deepFreeze = (obj) => {
-    if (!obj || typeof obj !== "object") return obj;
+  const cssEscape = (value) => {
+    const text = String(value ?? "");
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(text);
+    }
+    return text.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
+  };
+
+  const rafThrottle = (fn) => {
+    let frame = 0;
+    return (...args) => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        fn(...args);
+      });
+    };
+  };
+
+  const debounce = (fn, delay = 120) => {
+    let timer = 0;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = window.setTimeout(() => fn(...args), delay);
+    };
+  };
+
+  const storage = {
+    get(key) {
+      try {
+        return window.localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    },
+    set(key, value) {
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {}
+    },
+    remove(key) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {}
+    },
+  };
+
+  const freezeDeep = (obj) => {
+    if (!obj || typeof obj !== "object" || Object.isFrozen(obj)) return obj;
     Object.freeze(obj);
     Object.values(obj).forEach((value) => {
-      if (value && typeof value === "object" && !Object.isFrozen(value)) {
-        deepFreeze(value);
-      }
+      if (value && typeof value === "object") freezeDeep(value);
     });
     return obj;
   };
@@ -65,8 +149,10 @@
     const name = normalizeText(item?.name, `Premio ${index + 1}`);
     const chance = clampFloat(item?.chance, 0, 0, 100);
     const uyuPrice = clampInt(item?.uyu_price ?? item?.price_uyu ?? item?.price_value ?? 0, 0, 0);
-    const weight = clampInt(item?.weight, 1, 1);
+    const weight = clampInt(item?.weight ?? Math.round(Math.max(1, chance * 10)), 1, 1);
+
     return {
+      id: `prize-${index}-${normalizeLoose(name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "item"}`,
       name,
       chance,
       uyu_price: uyuPrice,
@@ -74,37 +160,42 @@
     };
   };
 
-  const normalizedPrizes = Array.isArray(rawConfig.prizes) && rawConfig.prizes.length
-    ? rawConfig.prizes.map(normalizePrize)
-    : [
-        { name: "🎁 Premio sorpresa", chance: 35.9, uyu_price: 200, weight: 359 },
-        { name: "🎟️ Cupón especial", chance: 24, uyu_price: 350, weight: 240 },
-        { name: "🏷️ Descuento premium", chance: 18, uyu_price: 500, weight: 180 },
-        { name: "💎 Gran premio", chance: 0.1, uyu_price: 1500, weight: 1 },
-      ];
+  const fallbackPrizes = [
+    { name: "🎁 Premio sorpresa", chance: 35.9, uyu_price: 200, weight: 359 },
+    { name: "🎟️ Cupón especial", chance: 24, uyu_price: 350, weight: 240 },
+    { name: "🏷️ Descuento premium", chance: 18, uyu_price: 500, weight: 180 },
+    { name: "💎 Gran premio", chance: 0.1, uyu_price: 1500, weight: 1 },
+  ];
 
-  const config = deepFreeze({
+  const normalizedPrizes = (Array.isArray(rawConfig.prizes) && rawConfig.prizes.length ? rawConfig.prizes : fallbackPrizes)
+    .map(normalizePrize)
+    .filter((item) => item.name);
+
+  const config = freezeDeep({
+    version: APP_VERSION,
     prizes: normalizedPrizes,
     currency: normalizeCurrency(rawConfig.currency),
     user_id: normalizeText(rawConfig.user_id),
     username: normalizeText(rawConfig.username),
     full_name: normalizeText(rawConfig.full_name),
-    display_name: normalizeDisplayName(rawConfig.display_name),
+    display_name: normalizeDisplayName(rawConfig.display_name || rawConfig.full_name || rawConfig.username || DEFAULTS.displayName),
     fichas: clampInt(rawConfig.fichas, 0, 0),
     demo_spins_left: clampInt(rawConfig.demo_spins_left, 0, 0),
-    uyu_to_ars: clampInt(rawConfig.uyu_to_ars, 25, 1),
-    ticket_price_uyu: clampInt(rawConfig.ticket_price_uyu, 250, 1),
+    uyu_to_ars: clampInt(rawConfig.uyu_to_ars, DEFAULTS.uyuToArs, 1),
+    ticket_price_uyu: clampInt(rawConfig.ticket_price_uyu, DEFAULTS.ticketPriceUyu, 1),
     mp_link_ar: normalizeText(rawConfig.mp_link_ar),
     mp_link_uy: normalizeText(rawConfig.mp_link_uy),
-    bot_name: normalizeText(rawConfig.bot_name, "Ruleta Premium"),
-    language_code: document.documentElement.lang || "es",
+    bot_name: normalizeText(rawConfig.bot_name, DEFAULTS.botName),
+    language_code: normalizeText(root.lang || rawConfig.language_code || "es", "es"),
   });
 
-  const $ = (id) => document.getElementById(id);
+  const $ = (id) => doc.getElementById(id);
+  const metaCsrf = doc.querySelector('meta[name="csrf-token"], meta[name="csrf"]');
 
   const els = {
     wheelCard: $("wheelCard"),
     wheelSvg: $("wheelSvg"),
+    wheelLayer: $("wheelLayer") || $("wheelSvg"),
     spinBtn: $("spinBtn"),
     demoBtn: $("demoBtn"),
     buyBtn: $("buyBtn"),
@@ -145,73 +236,65 @@
     return;
   }
 
-  const storageKeyBase = `ruleta:${config.user_id || config.username || "guest"}`;
-  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const prefersContrast = window.matchMedia("(prefers-contrast: more)");
-  const isTouchDevice = window.matchMedia("(hover: none)").matches;
+  const storageKeyBase = `ruleta:${config.user_id || config.username || "guest"}:v2`;
+  const media = {
+    reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)"),
+    contrast: window.matchMedia("(prefers-contrast: more)"),
+    hoverNone: window.matchMedia("(hover: none)"),
+  };
 
   const state = {
-    currency: normalizeCurrency(localStorageSafeGet(`${storageKeyBase}:currency`) || config.currency),
-    currentRotation: 0,
+    currency: normalizeCurrency(storage.get(`${storageKeyBase}:currency`) || config.currency),
     spinning: false,
     spinSource: "paid",
-    audioCtx: null,
-    masterGain: null,
-    compressor: null,
-    tickTimer: 0,
-    spinTimer: 0,
-    ballFrame: 0,
-    toastTimer: 0,
-    resizeTimer: 0,
-    confettiTimer: 0,
+    currentRotation: 0,
+    pendingPurchase: false,
+    syncingProfile: false,
     liveTimer: 0,
+    toastTimer: 0,
+    confettiTimer: 0,
+    spinTimer: 0,
+    tickTimer: 0,
+    ballFrame: 0,
+    wheelAnimation: null,
+    pointerAnimation: null,
     modalFocusedBeforeOpen: null,
+    audio: {
+      ctx: null,
+      compressor: null,
+      gain: null,
+      ready: false,
+    },
     user: {
       user_id: config.user_id,
       username: config.username,
       full_name: config.full_name,
-      display_name: normalizeDisplayName(localStorageSafeGet(`${storageKeyBase}:display_name`) || config.display_name || config.full_name || config.username || "Jugador"),
+      display_name: normalizeDisplayName(storage.get(`${storageKeyBase}:display_name`) || config.display_name),
       fichas: config.fichas,
       demo_spins_left: config.demo_spins_left,
     },
-    lastResult: localStorageSafeGet(`${storageKeyBase}:last_result`) ? safeJsonParse(localStorageSafeGet(`${storageKeyBase}:last_result`), null) : null,
+    lastResult: safeJsonParse(storage.get(`${storageKeyBase}:last_result`), null),
   };
 
-  function localStorageSafeGet(key) {
-    try {
-      return window.localStorage.getItem(key);
-    } catch {
-      return null;
-    }
-  }
+  const isReducedMotion = () => media.reducedMotion.matches;
+  const isTouchDevice = () => media.hoverNone.matches;
+  const getSpinDuration = () => (isReducedMotion() ? DEFAULTS.reducedSpinDurationMs : DEFAULTS.spinDurationMs);
+  const getConfettiCount = () => (isReducedMotion() ? DEFAULTS.reducedConfettiCount : DEFAULTS.confettiCount);
+  const getIdleBallRadius = () => (isTouchDevice() ? DEFAULTS.touchBallRadius : DEFAULTS.idleBallRadius);
 
-  function localStorageSafeSet(key, value) {
-    try {
-      window.localStorage.setItem(key, value);
-    } catch {}
-  }
-
-  function safeJsonParse(value, fallback) {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return fallback;
-    }
-  }
-
-  function persistUiState() {
-    localStorageSafeSet(`${storageKeyBase}:currency`, state.currency);
-    localStorageSafeSet(`${storageKeyBase}:display_name`, state.user.display_name);
+  const persistUiState = () => {
+    storage.set(`${storageKeyBase}:currency`, state.currency);
+    storage.set(`${storageKeyBase}:display_name`, state.user.display_name);
     if (state.lastResult) {
-      localStorageSafeSet(`${storageKeyBase}:last_result`, JSON.stringify(state.lastResult));
+      storage.set(`${storageKeyBase}:last_result`, JSON.stringify(state.lastResult));
+    } else {
+      storage.remove(`${storageKeyBase}:last_result`);
     }
-  }
+  };
 
-  function formatMoneyValueFromUyu(uyuPrice, curr = state.currency) {
-    const numeric = curr === "ARS"
-      ? clampInt(uyuPrice, 0, 0) * config.uyu_to_ars
-      : clampInt(uyuPrice, 0, 0);
-
+  const formatMoneyValueFromUyu = (uyuPrice, curr = state.currency) => {
+    const safeUyu = clampInt(uyuPrice, 0, 0);
+    const numeric = curr === "ARS" ? safeUyu * config.uyu_to_ars : safeUyu;
     const formatter = new Intl.NumberFormat(curr === "ARS" ? "es-AR" : "es-UY", {
       maximumFractionDigits: 0,
     });
@@ -220,124 +303,163 @@
       value: numeric,
       label: `$${formatter.format(numeric)} ${curr}`,
     };
-  }
+  };
 
-  function getTicketLabel(curr = state.currency) {
-    return formatMoneyValueFromUyu(config.ticket_price_uyu, curr).label;
-  }
+  const getTicketLabel = (curr = state.currency) => formatMoneyValueFromUyu(config.ticket_price_uyu, curr).label;
 
-  function chanceLabel(value) {
-    const num = clampFloat(value, 0, 0, 100);
-    return Number.isInteger(num) ? `${num}%` : `${num.toFixed(2).replace(/\.?0+$/, "")}%`;
-  }
+  const chanceLabel = (value) => {
+    const safe = clampFloat(value, 0, 0, 100);
+    return Number.isInteger(safe) ? `${safe}%` : `${safe.toFixed(2).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")}%`;
+  };
 
-  function setText(el, value) {
+  const shortLabel = (value, maxLen = 18) => {
+    const chars = Array.from(normalizeText(value));
+    return chars.length > maxLen ? `${chars.slice(0, maxLen).join("")}…` : chars.join("");
+  };
+
+  const setText = (el, value) => {
     if (el) el.textContent = String(value ?? "");
-  }
+  };
 
-  function setStatus(main, secondary) {
+  const setStatus = (main, secondary) => {
     setText(els.statusValue, main);
     setText(els.spinState, secondary);
-  }
+    if (els.statusValue) els.statusValue.dataset.state = normalizeLoose(main);
+  };
 
-  function announce(text) {
+  const announce = (text) => {
     if (!els.liveRegion) return;
     els.liveRegion.textContent = "";
-    window.clearTimeout(state.liveTimer);
+    clearTimeout(state.liveTimer);
     state.liveTimer = window.setTimeout(() => {
       els.liveRegion.textContent = text;
-    }, 20);
-  }
+    }, 25);
+  };
 
-  function toast(message, type = "info") {
+  const toast = (message, type = "info") => {
     if (!els.toast) return;
     els.toast.dataset.type = type;
     els.toast.textContent = message;
     els.toast.classList.add("show");
-    window.clearTimeout(state.toastTimer);
+    clearTimeout(state.toastTimer);
     state.toastTimer = window.setTimeout(() => {
       els.toast.classList.remove("show");
-    }, type === "error" ? 2800 : 2200);
-  }
+    }, type === "error" ? DEFAULTS.errorToastDurationMs : DEFAULTS.toastDurationMs);
+  };
 
-  function updateCurrencyButtons() {
-    if (els.btnUyu) els.btnUyu.classList.toggle("active", state.currency === "UYU");
-    if (els.btnArs) els.btnArs.classList.toggle("active", state.currency === "ARS");
-  }
+  const currentPlayerName = () => normalizeDisplayName(state.user.display_name || state.user.full_name || state.user.username || DEFAULTS.displayName);
 
-  function currentPlayerName() {
-    return normalizeDisplayName(state.user.display_name || state.user.full_name || state.user.username || "Jugador");
-  }
+  const setBusy = (el, busy, busyLabel = "Procesando...") => {
+    if (!el) return;
+    if (busy) {
+      if (!el.dataset.originalLabel) el.dataset.originalLabel = el.textContent || "";
+      el.disabled = true;
+      el.setAttribute("aria-busy", "true");
+      el.textContent = busyLabel;
+      return;
+    }
 
-  function renderMiniStats() {
+    el.removeAttribute("aria-busy");
+    if (el.dataset.originalLabel) {
+      el.textContent = el.dataset.originalLabel;
+    }
+  };
+
+  const renderMiniStats = () => {
     setText(els.realPrizeCount, `${config.prizes.length} visibles`);
     setText(els.miniFichas, String(state.user.fichas || 0));
     setText(els.miniDemo, String(state.user.demo_spins_left || 0));
-  }
+  };
 
-  function renderTicket() {
+  const renderTicket = () => {
     const label = getTicketLabel(state.currency);
     setText(els.ticketPrice, label);
     setText(els.miniTicket, label);
     setText(els.currencyChip, `Moneda ${state.currency}`);
-  }
+  };
 
-  function renderProfile() {
+  const updateCurrencyButtons = () => {
+    if (els.btnUyu) {
+      els.btnUyu.classList.toggle("active", state.currency === "UYU");
+      els.btnUyu.setAttribute("aria-pressed", String(state.currency === "UYU"));
+    }
+    if (els.btnArs) {
+      els.btnArs.classList.toggle("active", state.currency === "ARS");
+      els.btnArs.setAttribute("aria-pressed", String(state.currency === "ARS"));
+    }
+  };
+
+  const renderProfile = () => {
     setText(els.playerNameText, currentPlayerName());
     setText(els.fichasValue, `${state.user.fichas || 0} fichas`);
     renderMiniStats();
     updateActionButtons();
     persistUiState();
-  }
+  };
 
-  function renderIdleWinner() {
+  const renderIdleWinner = () => {
     els.winnerBox.innerHTML = `
       <div class="info-label">Resultado</div>
       <div class="winner-main">Gira la ruleta</div>
       <div class="winner-sub">Tu premio aparecerá aquí</div>
       <div class="winner-badge">Sin resultado todavía</div>
     `;
-  }
+  };
 
-  function renderWinner(result) {
+  const renderWinner = (result) => {
     const player = escapeHtml(currentPlayerName());
     const prizeName = escapeHtml(result?.name || "Premio");
     const prizeLabel = escapeHtml(result?.label || "");
+    const chance = result?.chance != null ? `<div class="winner-badge">Probabilidad ${escapeHtml(chanceLabel(result.chance))}</div>` : `<div class="winner-badge">Resultado confirmado</div>`;
+
     els.winnerBox.innerHTML = `
       <div class="info-label">Premio ganado</div>
       <div class="winner-main">${player}, ganaste ${prizeName}</div>
       <div class="winner-sub">${prizeLabel}</div>
-      <div class="winner-badge">Resultado confirmado</div>
+      ${chance}
     `;
-  }
+  };
 
-  function renderPersistedWinner() {
-    if (state.lastResult && state.lastResult.name) {
+  const renderPersistedWinner = () => {
+    if (state.lastResult?.name) {
       renderWinner(state.lastResult);
-    } else {
-      renderIdleWinner();
+      return;
     }
-  }
+    renderIdleWinner();
+  };
 
-  function renderPrizeList() {
-    const fragment = document.createDocumentFragment();
+  const resolvePrizeByName = (prizeName) => {
+    const target = normalizeLoose(prizeName);
+    if (!target) return null;
 
-    config.prizes.forEach((prize) => {
-      const row = document.createElement("div");
+    return (
+      config.prizes.find((item) => normalizeLoose(item.name) === target) ||
+      config.prizes.find((item) => normalizeLoose(item.name).includes(target) || target.includes(normalizeLoose(item.name))) ||
+      null
+    );
+  };
+
+  const renderPrizeList = () => {
+    const fragment = doc.createDocumentFragment();
+
+    config.prizes.forEach((prize, index) => {
+      const row = doc.createElement("div");
       row.className = "prize-item";
+      row.dataset.prizeId = prize.id;
+      row.dataset.index = String(index);
 
-      const left = document.createElement("div");
+      const left = doc.createElement("div");
       left.className = "prize-left";
 
-      const name = document.createElement("div");
+      const name = doc.createElement("div");
       name.className = "prize-name";
       name.textContent = prize.name;
 
-      const meta = document.createElement("div");
+      const meta = doc.createElement("div");
       meta.className = "prize-meta";
       meta.textContent = `Probabilidad ${chanceLabel(prize.chance)}`;
 
-      const price = document.createElement("div");
+      const price = doc.createElement("div");
       price.className = "prize-price";
       price.textContent = formatMoneyValueFromUyu(prize.uyu_price, state.currency).label;
 
@@ -350,247 +472,311 @@
 
     els.prizeList.replaceChildren(fragment);
     setText(els.totalItemsChip, `${config.prizes.length} premios`);
-  }
+  };
 
-  function polarToCartesian(cx, cy, r, angleDeg) {
+  const polarToCartesian = (cx, cy, r, angleDeg) => {
     const angleRad = ((angleDeg - 90) * Math.PI) / 180;
     return {
       x: cx + r * Math.cos(angleRad),
       y: cy + r * Math.sin(angleRad),
     };
-  }
+  };
 
-  function describeWedge(cx, cy, r, startAngle, endAngle) {
+  const describeWedge = (cx, cy, r, startAngle, endAngle) => {
     const start = polarToCartesian(cx, cy, r, endAngle);
     const end = polarToCartesian(cx, cy, r, startAngle);
     const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
     return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 0 ${end.x} ${end.y} Z`;
-  }
+  };
 
-  function renderWheel() {
+  const renderWheel = () => {
     const colors = [
-      ["#ff73bd", "#d41b70"],
-      ["#bf6bff", "#6d26e0"],
-      ["#ff6f89", "#e1224f"],
-      ["#db69ff", "#932bda"],
-      ["#ff4c99", "#d21c68"],
-      ["#9a56ff", "#6427de"],
-      ["#ff7280", "#ea2847"],
-      ["#d757ff", "#8d2be2"],
+      ["#ff88c6", "#d51b71"],
+      ["#d28cff", "#6d25df"],
+      ["#ff7b8e", "#e32052"],
+      ["#f38bff", "#8f29df"],
+      ["#ff64a8", "#cf1b67"],
+      ["#ae79ff", "#5e26da"],
+      ["#ff8d73", "#e74834"],
+      ["#d86cff", "#822ce0"],
     ];
 
-    const total = config.prizes.length;
+    const total = Math.max(1, config.prizes.length);
     const angle = 360 / total;
 
     let defs = `
       <filter id="segmentShadow" x="-50%" y="-50%" width="200%" height="200%">
-        <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" flood-color="rgba(0,0,0,.35)"></feDropShadow>
+        <feDropShadow dx="0" dy="1.4" stdDeviation="1.2" flood-color="rgba(0,0,0,.35)"></feDropShadow>
       </filter>
       <filter id="textShadow" x="-50%" y="-50%" width="200%" height="200%">
-        <feDropShadow dx="0" dy="1.2" stdDeviation=".8" flood-color="rgba(0,0,0,.55)"></feDropShadow>
+        <feDropShadow dx="0" dy="1.1" stdDeviation=".9" flood-color="rgba(0,0,0,.5)"></feDropShadow>
       </filter>
       <radialGradient id="centerGlow" cx="50%" cy="50%" r="60%">
-        <stop offset="0%" stop-color="rgba(255,255,255,.08)"></stop>
+        <stop offset="0%" stop-color="rgba(255,255,255,.14)"></stop>
+        <stop offset="70%" stop-color="rgba(255,255,255,.04)"></stop>
         <stop offset="100%" stop-color="rgba(255,255,255,0)"></stop>
+      </radialGradient>
+      <radialGradient id="outerRing" cx="50%" cy="50%" r="65%">
+        <stop offset="70%" stop-color="rgba(255,255,255,0)"></stop>
+        <stop offset="100%" stop-color="rgba(255,255,255,.12)"></stop>
       </radialGradient>
     `;
 
     let html = "";
 
-    config.prizes.forEach((prize, i) => {
-      const startAngle = i * angle;
-      const endAngle = (i + 1) * angle;
+    config.prizes.forEach((prize, index) => {
+      const startAngle = index * angle;
+      const endAngle = (index + 1) * angle;
       const midAngle = startAngle + angle / 2;
-      const path = describeWedge(50, 50, 47.8, startAngle, endAngle);
-      const gradId = `seg-grad-${i}`;
-      const glossId = `seg-gloss-${i}`;
-      const label = escapeHtml(shortLabel(prize.name, 18));
-      const fill = colors[i % colors.length];
+      const path = describeWedge(DEFAULTS.wheelCenter, DEFAULTS.wheelCenter, DEFAULTS.wheelRadius, startAngle, endAngle);
+      const gradientId = `seg-grad-${index}`;
+      const glossId = `seg-gloss-${index}`;
+      const label = escapeHtml(shortLabel(prize.name, total >= 10 ? 13 : 18));
+      const fill = colors[index % colors.length];
+      const fontSize = total >= 12 ? 2.7 : total >= 10 ? 3.1 : total >= 8 ? 3.6 : 4;
+      const labelY = total >= 10 ? 14.6 : 15.4;
 
       defs += `
-        <linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stop-color="${fill[0]}"></stop>
           <stop offset="100%" stop-color="${fill[1]}"></stop>
         </linearGradient>
         <linearGradient id="${glossId}" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stop-color="rgba(255,255,255,.18)"></stop>
-          <stop offset="45%" stop-color="rgba(255,255,255,.04)"></stop>
+          <stop offset="0%" stop-color="rgba(255,255,255,.22)"></stop>
+          <stop offset="40%" stop-color="rgba(255,255,255,.05)"></stop>
           <stop offset="100%" stop-color="rgba(255,255,255,0)"></stop>
         </linearGradient>
       `;
 
       html += `
-        <g filter="url(#segmentShadow)">
-          <path d="${path}" fill="url(#${gradId})" stroke="rgba(255,255,255,0.24)" stroke-width="0.7"></path>
+        <g filter="url(#segmentShadow)" data-prize-index="${index}">
+          <path d="${path}" fill="url(#${gradientId})" stroke="rgba(255,255,255,.25)" stroke-width="0.7"></path>
           <path d="${path}" fill="url(#${glossId})"></path>
           <g transform="rotate(${midAngle} 50 50)">
-            <text x="50" y="15.4" text-anchor="middle" font-size="3.9" font-weight="1000" filter="url(#textShadow)">${label}</text>
+            <text x="50" y="${labelY}" text-anchor="middle" font-size="${fontSize}" font-weight="1000" letter-spacing=".06em" filter="url(#textShadow)">${label}</text>
           </g>
         </g>
       `;
     });
 
-    html += `<circle cx="50" cy="50" r="13" fill="url(#centerGlow)"></circle>`;
+    html += `
+      <circle cx="50" cy="50" r="13" fill="url(#centerGlow)"></circle>
+      <circle cx="50" cy="50" r="47.1" fill="none" stroke="url(#outerRing)" stroke-width="1"></circle>
+    `;
+
     els.wheelSvg.innerHTML = `<defs>${defs}</defs>${html}`;
-  }
+    els.wheelSvg.setAttribute("aria-label", `${config.prizes.length} premios disponibles`);
+  };
 
-  function renderStars() {
+  const renderStars = () => {
     if (!els.stars) return;
-    const wrap = els.stars;
-    const count = prefersReducedMotion.matches ? 12 : window.innerWidth < 700 ? 28 : 54;
-    const fragment = document.createDocumentFragment();
+    const count = isReducedMotion() ? 12 : window.innerWidth < 700 ? 30 : 58;
+    const fragment = doc.createDocumentFragment();
 
     for (let i = 0; i < count; i += 1) {
-      const el = document.createElement("span");
-      el.className = "star";
-      el.style.left = `${Math.random() * 100}%`;
-      el.style.top = `${Math.random() * 100}%`;
-      el.style.animationDelay = `${Math.random() * 4}s`;
-      el.style.animationDuration = `${3 + Math.random() * 4}s`;
-      fragment.appendChild(el);
+      const star = doc.createElement("span");
+      star.className = "star";
+      star.style.left = `${Math.random() * 100}%`;
+      star.style.top = `${Math.random() * 100}%`;
+      star.style.animationDelay = `${Math.random() * 4.2}s`;
+      star.style.animationDuration = `${3 + Math.random() * 4.3}s`;
+      fragment.appendChild(star);
     }
 
-    wrap.replaceChildren(fragment);
-  }
+    els.stars.replaceChildren(fragment);
+  };
 
-  function renderParticles() {
+  const renderParticles = () => {
     if (!els.particles) return;
-    const wrap = els.particles;
-    const count = prefersReducedMotion.matches ? 6 : window.innerWidth < 700 ? 12 : 22;
-    const fragment = document.createDocumentFragment();
+    const count = isReducedMotion() ? 6 : window.innerWidth < 700 ? 12 : 24;
+    const fragment = doc.createDocumentFragment();
 
     for (let i = 0; i < count; i += 1) {
-      const el = document.createElement("span");
-      el.className = "particle";
-      el.style.left = `${Math.random() * 100}%`;
-      el.style.bottom = `${-10 - Math.random() * 30}px`;
-      el.style.animationDelay = `${Math.random() * 6}s`;
-      el.style.animationDuration = `${8 + Math.random() * 8}s`;
-      const size = `${4 + Math.random() * 6}px`;
-      el.style.width = size;
-      el.style.height = size;
-      fragment.appendChild(el);
+      const p = doc.createElement("span");
+      p.className = "particle";
+      p.style.left = `${Math.random() * 100}%`;
+      p.style.bottom = `${-10 - Math.random() * 35}px`;
+      p.style.animationDelay = `${Math.random() * 6}s`;
+      p.style.animationDuration = `${8 + Math.random() * 9}s`;
+      const size = `${4 + Math.random() * 7}px`;
+      p.style.width = size;
+      p.style.height = size;
+      fragment.appendChild(p);
     }
 
-    wrap.replaceChildren(fragment);
-  }
+    els.particles.replaceChildren(fragment);
+  };
 
-  function renderLights() {
+  const renderLights = () => {
     if (!els.lights) return;
-    const wrap = els.lights;
-    const count = prefersReducedMotion.matches ? 18 : 36;
-    const radius = window.innerWidth < 640 ? 41.5 : 45.5;
-    const fragment = document.createDocumentFragment();
+    const count = isReducedMotion() ? 18 : 38;
+    const radius = window.innerWidth < 640 ? 41.3 : 45.2;
+    const fragment = doc.createDocumentFragment();
 
     for (let i = 0; i < count; i += 1) {
-      const dot = document.createElement("span");
+      const dot = doc.createElement("span");
       const angle = (i / count) * 360;
       dot.style.transform = `translate(-50%, -50%) rotate(${angle}deg) translateY(calc(-1 * ${radius}%))`;
       dot.style.animationDelay = `${i * 0.035}s`;
       fragment.appendChild(dot);
     }
 
-    wrap.replaceChildren(fragment);
-  }
+    els.lights.replaceChildren(fragment);
+  };
 
-  function setBallPosition(angleDeg, radiusPercent = 42) {
+  const setBallPosition = (angleDeg, radiusPercent = getIdleBallRadius()) => {
     if (!els.ball) return;
-    const rad = ((angleDeg - 90) * Math.PI) / 180;
-    const x = Math.cos(rad) * radiusPercent;
-    const y = Math.sin(rad) * radiusPercent;
+    const radians = ((angleDeg - 90) * Math.PI) / 180;
+    const x = Math.cos(radians) * radiusPercent;
+    const y = Math.sin(radians) * radiusPercent;
     els.ball.style.transform = `translate(calc(-50% + ${x}%), calc(-50% + ${y}%))`;
-  }
+  };
 
-  function stopBallAnimation() {
+  const stopBallAnimation = () => {
     if (state.ballFrame) {
       cancelAnimationFrame(state.ballFrame);
       state.ballFrame = 0;
     }
-  }
+  };
 
-  function animateBallSpin(finalAngle, duration = prefersReducedMotion.matches ? 1200 : 5900) {
+  const animateBallSpin = (finalAngle, duration = getSpinDuration() - 80) => {
     stopBallAnimation();
     const start = performance.now();
-    const initialTurns = prefersReducedMotion.matches ? 360 : 1440 + Math.random() * 540;
+    const initialTurns = isReducedMotion() ? 360 : 1440 + Math.random() * 720;
 
     const frame = (now) => {
       const elapsed = now - start;
       const t = Math.min(1, elapsed / duration);
-      const easeOut = 1 - Math.pow(1 - t, 3);
-      const wobble = prefersReducedMotion.matches ? 0 : Math.sin(t * Math.PI * 18) * (1 - t) * 1.4;
-      const angle = (initialTurns * (1 - easeOut)) + (finalAngle * easeOut) + wobble;
-      const radius = prefersReducedMotion.matches ? 39 : 43 - easeOut * 4.5;
+      const ease = 1 - Math.pow(1 - t, 3);
+      const wobble = isReducedMotion() ? 0 : Math.sin(t * Math.PI * 18) * (1 - t) * 1.5;
+      const angle = initialTurns * (1 - ease) + finalAngle * ease + wobble;
+      const radius = isReducedMotion() ? DEFAULTS.finalBallRadius + 1.2 : getIdleBallRadius() - ease * 4.9;
       setBallPosition(angle, radius);
 
       if (t < 1) {
         state.ballFrame = requestAnimationFrame(frame);
       } else {
-        setBallPosition(finalAngle, 38.5);
+        setBallPosition(finalAngle, DEFAULTS.finalBallRadius);
         state.ballFrame = 0;
       }
     };
 
     state.ballFrame = requestAnimationFrame(frame);
-  }
+  };
 
-  function triggerPointerKick(totalDuration = prefersReducedMotion.matches ? 800 : 4600) {
-    if (!els.pointer || typeof els.pointer.animate !== "function" || prefersReducedMotion.matches) return;
+  const stopWheelAnimation = () => {
+    if (state.wheelAnimation && typeof state.wheelAnimation.cancel === "function") {
+      try {
+        state.wheelAnimation.cancel();
+      } catch {}
+    }
+    state.wheelAnimation = null;
+  };
 
-    const beats = Math.max(8, Math.floor(totalDuration / 220));
-    els.pointer.animate(
+  const animateWheelRotation = (targetRotation, duration = getSpinDuration()) => {
+    if (!els.wheelSvg) return;
+    stopWheelAnimation();
+
+    if (typeof els.wheelSvg.animate === "function") {
+      state.wheelAnimation = els.wheelSvg.animate(
+        [
+          { transform: `rotate(${state.currentRotation}deg)` },
+          { transform: `rotate(${targetRotation}deg)` },
+        ],
+        {
+          duration,
+          easing: isReducedMotion() ? "cubic-bezier(.22,.61,.36,1)" : "cubic-bezier(.08,.85,.15,1)",
+          fill: "forwards",
+        }
+      );
+
+      state.wheelAnimation.onfinish = () => {
+        els.wheelSvg.style.transform = `rotate(${targetRotation}deg)`;
+        state.wheelAnimation = null;
+      };
+
+      return;
+    }
+
+    els.wheelSvg.style.transition = `transform ${duration}ms cubic-bezier(.08,.85,.15,1)`;
+    requestAnimationFrame(() => {
+      els.wheelSvg.style.transform = `rotate(${targetRotation}deg)`;
+    });
+    window.setTimeout(() => {
+      els.wheelSvg.style.transition = "";
+    }, duration + 40);
+  };
+
+  const stopPointerKick = () => {
+    if (state.pointerAnimation && typeof state.pointerAnimation.cancel === "function") {
+      try {
+        state.pointerAnimation.cancel();
+      } catch {}
+    }
+    state.pointerAnimation = null;
+  };
+
+  const triggerPointerKick = (totalDuration = getSpinDuration() - 1200) => {
+    if (!els.pointer || typeof els.pointer.animate !== "function" || isReducedMotion()) return;
+    stopPointerKick();
+
+    const beats = Math.max(8, Math.floor(totalDuration / 210));
+    state.pointerAnimation = els.pointer.animate(
       [
         { transform: "scaleY(1) translateY(0)" },
-        { transform: "scaleY(1.12) translateY(3px)" },
-        { transform: "scaleY(.94) translateY(-1px)" },
+        { transform: "scaleY(1.14) translateY(3px)" },
+        { transform: "scaleY(.95) translateY(-1px)" },
         { transform: "scaleY(1) translateY(0)" },
       ],
       {
-        duration: 200,
+        duration: 190,
         iterations: beats,
         easing: "ease-in-out",
       }
     );
-  }
+  };
 
-  function initAudio() {
-    if (state.audioCtx) return;
+  const initAudio = () => {
+    if (state.audio.ctx) return;
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) return;
 
     const ctx = new AudioContextClass();
     const compressor = ctx.createDynamicsCompressor();
-    const masterGain = ctx.createGain();
+    const gain = ctx.createGain();
 
     compressor.threshold.value = -20;
     compressor.knee.value = 20;
     compressor.ratio.value = 8;
     compressor.attack.value = 0.003;
     compressor.release.value = 0.25;
+    gain.gain.value = isReducedMotion() ? 0.11 : 0.17;
 
-    masterGain.gain.value = prefersReducedMotion.matches ? 0.12 : 0.18;
-    compressor.connect(masterGain);
-    masterGain.connect(ctx.destination);
+    compressor.connect(gain);
+    gain.connect(ctx.destination);
 
-    state.audioCtx = ctx;
-    state.compressor = compressor;
-    state.masterGain = masterGain;
-  }
+    state.audio.ctx = ctx;
+    state.audio.compressor = compressor;
+    state.audio.gain = gain;
+  };
 
-  async function ensureAudioReady() {
+  const ensureAudioReady = async () => {
     initAudio();
-    if (state.audioCtx && state.audioCtx.state === "suspended") {
+    if (!state.audio.ctx) return;
+    if (state.audio.ctx.state === "suspended") {
       try {
-        await state.audioCtx.resume();
+        await state.audio.ctx.resume();
       } catch {}
     }
-  }
+    state.audio.ready = state.audio.ctx.state === "running";
+  };
 
-  function playTone(type, frequency, duration, gainValue, when = 0, glideTo = null) {
-    if (!state.audioCtx || !state.compressor) return;
+  const playTone = (type, frequency, duration, gainValue, when = 0, glideTo = null) => {
+    if (!state.audio.ctx || !state.audio.compressor || !state.audio.ready) return;
 
-    const now = state.audioCtx.currentTime + when;
-    const osc = state.audioCtx.createOscillator();
-    const gain = state.audioCtx.createGain();
+    const now = state.audio.ctx.currentTime + when;
+    const osc = state.audio.ctx.createOscillator();
+    const gain = state.audio.ctx.createGain();
 
     osc.type = type;
     osc.frequency.setValueAtTime(frequency, now);
@@ -603,39 +789,36 @@
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
     osc.connect(gain);
-    gain.connect(state.compressor);
+    gain.connect(state.audio.compressor);
 
     osc.start(now);
-    osc.stop(now + duration + 0.03);
-  }
+    osc.stop(now + duration + 0.04);
+  };
 
-  function playTick() {
-    playTone("square", 950 + Math.random() * 180, 0.05, 0.015);
-  }
+  const playTick = () => playTone("square", 940 + Math.random() * 180, 0.05, 0.015);
 
-  function playSpinStart() {
-    playTone("triangle", 380, 0.11, 0.022, 0, 520);
-    playTone("triangle", 540, 0.16, 0.016, 0.04, 720);
-  }
+  const playSpinStart = () => {
+    playTone("triangle", 380, 0.12, 0.021, 0, 520);
+    playTone("triangle", 540, 0.17, 0.016, 0.05, 760);
+  };
 
-  function playWinSound() {
+  const playWinSound = () => {
     playTone("triangle", 740, 0.12, 0.028, 0);
     playTone("triangle", 920, 0.12, 0.028, 0.11);
     playTone("triangle", 1160, 0.2, 0.028, 0.22);
     playTone("sine", 1480, 0.28, 0.018, 0.18, 1720);
-  }
+  };
 
-  function stopTicking() {
+  const stopTicking = () => {
     if (state.tickTimer) {
       clearTimeout(state.tickTimer);
       state.tickTimer = 0;
     }
-  }
+  };
 
-  function startTicking(totalDuration = prefersReducedMotion.matches ? 900 : 5200) {
+  const startTicking = (totalDuration = getSpinDuration() - 450) => {
     stopTicking();
-    if (prefersReducedMotion.matches) return;
-
+    if (isReducedMotion()) return;
     const startedAt = performance.now();
 
     const schedule = () => {
@@ -644,90 +827,92 @@
         stopTicking();
         return;
       }
-
       const progress = elapsed / totalDuration;
-      const interval = 65 + progress * 120 + Math.random() * 12;
+      const interval = 65 + progress * 125 + Math.random() * 10;
       playTick();
       state.tickTimer = window.setTimeout(schedule, interval);
     };
 
     schedule();
-  }
+  };
 
-  function fireConfetti(count = prefersReducedMotion.matches ? 32 : 180) {
+  const fireConfetti = (count = getConfettiCount()) => {
     if (!els.confettiWrap) return;
-
-    const wrap = els.confettiWrap;
     const colors = ["#ffd85b", "#ff5c91", "#c56eff", "#ffffff", "#ff9cc0", "#ffe9a8"];
-    const fragment = document.createDocumentFragment();
+    const fragment = doc.createDocumentFragment();
 
     for (let i = 0; i < count; i += 1) {
-      const el = document.createElement("span");
-      el.className = "confetti";
-      el.style.left = `${Math.random() * 100}%`;
-      el.style.top = `${-10 - Math.random() * 25}%`;
-      el.style.background = colors[Math.floor(Math.random() * colors.length)];
-      el.style.width = `${7 + Math.random() * 7}px`;
-      el.style.height = `${10 + Math.random() * 12}px`;
-      el.style.borderRadius = Math.random() > 0.65 ? "50%" : "2px";
-      el.style.animationDuration = `${2.8 + Math.random() * 2.4}s`;
-      el.style.animationDelay = `${Math.random() * 0.2}s`;
-      el.style.transform = `rotate(${Math.random() * 360}deg)`;
-      fragment.appendChild(el);
+      const confetti = doc.createElement("span");
+      confetti.className = "confetti";
+      confetti.style.left = `${Math.random() * 100}%`;
+      confetti.style.top = `${-10 - Math.random() * 25}%`;
+      confetti.style.background = colors[Math.floor(Math.random() * colors.length)];
+      confetti.style.width = `${7 + Math.random() * 7}px`;
+      confetti.style.height = `${10 + Math.random() * 12}px`;
+      confetti.style.borderRadius = Math.random() > 0.65 ? "50%" : "2px";
+      confetti.style.animationDuration = `${2.8 + Math.random() * 2.5}s`;
+      confetti.style.animationDelay = `${Math.random() * 0.18}s`;
+      confetti.style.transform = `rotate(${Math.random() * 360}deg)`;
+      fragment.appendChild(confetti);
     }
 
-    wrap.replaceChildren(fragment);
+    els.confettiWrap.replaceChildren(fragment);
     clearTimeout(state.confettiTimer);
     state.confettiTimer = window.setTimeout(() => {
-      wrap.innerHTML = "";
-    }, 5200);
-  }
+      els.confettiWrap.innerHTML = "";
+    }, 5300);
+  };
 
-  function updateActionButtons() {
+  const updateActionButtons = () => {
     const canPaidSpin = state.user.fichas > 0;
     const canDemoSpin = state.user.demo_spins_left > 0;
 
     if (els.spinBtn) {
       els.spinBtn.disabled = state.spinning || !canPaidSpin;
+      els.spinBtn.setAttribute("aria-disabled", String(state.spinning || !canPaidSpin));
       els.spinBtn.textContent = state.spinning
         ? state.spinSource === "demo"
           ? "⏳ GIRANDO DEMO..."
           : "⏳ GIRANDO..."
         : canPaidSpin
-          ? "🎰 GIRAR CON FICHA"
+          ? `🎰 GIRAR CON FICHA (${state.user.fichas})`
           : "🎰 SIN FICHAS";
     }
 
     if (els.demoBtn) {
       els.demoBtn.disabled = state.spinning || !canDemoSpin;
-      els.demoBtn.textContent = canDemoSpin ? "🆓 TIRADA DEMO" : "🆓 DEMO AGOTADA";
+      els.demoBtn.setAttribute("aria-disabled", String(state.spinning || !canDemoSpin));
+      els.demoBtn.textContent = canDemoSpin ? `🆓 TIRADA DEMO (${state.user.demo_spins_left})` : "🆓 DEMO AGOTADA";
     }
 
     if (els.buyBtn) {
       els.buyBtn.disabled = state.spinning;
+      els.buyBtn.setAttribute("aria-disabled", String(state.spinning));
     }
-  }
 
-  function applyProfile(profile) {
+    if (els.confirmArPaidBtn) els.confirmArPaidBtn.disabled = state.pendingPurchase || state.spinning;
+    if (els.confirmUyPaidBtn) els.confirmUyPaidBtn.disabled = state.pendingPurchase || state.spinning;
+  };
+
+  const applyProfile = (profile) => {
     if (!profile || typeof profile !== "object") return;
-
-    state.user.display_name = normalizeDisplayName(profile.display_name || state.user.display_name || state.user.full_name || state.user.username || "Jugador");
+    state.user.display_name = normalizeDisplayName(profile.display_name || state.user.display_name);
     state.user.fichas = clampInt(profile.fichas, state.user.fichas, 0);
     state.user.demo_spins_left = clampInt(profile.demo_spins_left, state.user.demo_spins_left, 0);
     persistUiState();
     renderProfile();
-  }
+  };
 
-  function normalizeProfileShape(data) {
+  const normalizeProfileShape = (data) => {
     const source = data?.profile || data?.user || data || {};
     return {
-      display_name: normalizeDisplayName(source.display_name || source.full_name || source.username || state.user.display_name || "Jugador"),
+      display_name: normalizeDisplayName(source.display_name || source.full_name || source.username || state.user.display_name || DEFAULTS.displayName),
       fichas: clampInt(source.fichas, state.user.fichas, 0),
       demo_spins_left: clampInt(source.demo_spins_left, state.user.demo_spins_left, 0),
     };
-  }
+  };
 
-  function normalizePurchaseShape(data, country) {
+  const normalizePurchaseShape = (data, country) => {
     const purchase = data?.purchase || data || {};
     return {
       purchase_id: normalizeText(purchase.purchase_id || purchase.id || data?.purchase_id || `pending-${Date.now()}`),
@@ -735,14 +920,9 @@
       status: normalizeText(purchase.status, "pending"),
       qty: clampInt(purchase.qty, 1, 1),
     };
-  }
+  };
 
-  function resolvePrizeByName(prizeName) {
-    const clean = normalizeText(prizeName).toLowerCase();
-    return config.prizes.find((item) => normalizeText(item.name).toLowerCase() === clean) || null;
-  }
-
-  function normalizeSpinShape(data, requestedMode) {
+  const normalizeSpinShape = (data, requestedMode) => {
     const result = data?.result || data?.prize || {};
     const profile = normalizeProfileShape(data);
     const prizeName = normalizeText(result.name || result.prize || data?.prize?.name || "");
@@ -757,6 +937,7 @@
     return {
       profile,
       prize: {
+        id: matched.id,
         name: prizeName || matched.name,
         label,
         chance: clampFloat(result.chance || matched.chance, matched.chance, 0, 100),
@@ -764,19 +945,34 @@
         source: normalizeText(result.source || requestedMode || "paid"),
       },
     };
-  }
+  };
 
-  async function fetchJson(path, payload, timeoutMs = 12000) {
+  const getHeaders = () => {
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    };
+
+    if (metaCsrf?.content) {
+      headers["X-CSRF-Token"] = metaCsrf.content;
+    }
+
+    return headers;
+  };
+
+  const fetchJson = async (path, payload, timeoutMs = DEFAULTS.requestTimeoutMs) => {
+    if (!navigator.onLine) {
+      throw new Error("No hay conexión a internet.");
+    }
+
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetch(path, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
+        headers: getHeaders(),
         credentials: "same-origin",
         cache: "no-store",
         signal: controller.signal,
@@ -787,10 +983,8 @@
       const data = safeJsonParse(text, null);
 
       if (!response.ok) {
-        const message = data?.error || `Error ${response.status}`;
-        throw new Error(message);
+        throw new Error(data?.error || `Error ${response.status}`);
       }
-
       if (!data || data.ok === false) {
         throw new Error(data?.error || "Respuesta inválida del servidor");
       }
@@ -804,13 +998,13 @@
     } finally {
       clearTimeout(timeoutId);
     }
-  }
+  };
 
-  async function apiPost(paths, payload) {
-    const list = Array.isArray(paths) ? paths : [paths];
+  const apiPost = async (paths, payload) => {
+    const candidates = Array.isArray(paths) ? paths : [paths];
     let lastError = null;
 
-    for (const path of list) {
+    for (const path of candidates) {
       try {
         return await fetchJson(path, payload);
       } catch (error) {
@@ -818,10 +1012,10 @@
       }
     }
 
-    throw lastError || new Error("No se pudo completar la solicitud");
-  }
+    throw lastError || new Error("No se pudo completar la solicitud.");
+  };
 
-  function profilePayload(extra = {}) {
+  const profilePayload = (extra = {}) => {
     const nameParts = splitName(state.user.full_name || config.full_name || state.user.display_name);
     return {
       user_id: state.user.user_id,
@@ -832,21 +1026,25 @@
       display_name: state.user.display_name,
       currency: state.currency,
       language_code: config.language_code,
+      version: APP_VERSION,
       ...extra,
     };
-  }
+  };
 
-  async function syncProfile(extra = {}) {
-    const data = await apiPost(
-      ["/api/user/sync", "/api/profile-sync", "/api/profile"],
-      profilePayload(extra)
-    );
-    const profile = normalizeProfileShape(data);
-    applyProfile(profile);
-    return profile;
-  }
+  const syncProfile = async (extra = {}) => {
+    if (state.syncingProfile) return normalizeProfileShape(state.user);
+    state.syncingProfile = true;
+    try {
+      const data = await apiPost(API_PATHS.profile, profilePayload(extra));
+      const profile = normalizeProfileShape(data);
+      applyProfile(profile);
+      return profile;
+    } finally {
+      state.syncingProfile = false;
+    }
+  };
 
-  async function savePlayerName() {
+  const savePlayerName = async () => {
     const newDisplayName = normalizeDisplayName(els.playerNameInput?.value || "");
     if (!newDisplayName) {
       toast("Escribí un nombre válido", "error");
@@ -854,33 +1052,47 @@
       return;
     }
 
-    const profile = await syncProfile({ display_name: newDisplayName });
-    state.user.display_name = profile.display_name;
-    closeNameModal();
-    toast(`Hola ${state.user.display_name}`, "success");
-    announce(`Nombre guardado como ${state.user.display_name}`);
-  }
+    setBusy(els.saveNameBtn, true, "Guardando...");
+    try {
+      const profile = await syncProfile({ display_name: newDisplayName });
+      state.user.display_name = profile.display_name;
+      persistUiState();
+      closeNameModal();
+      toast(`Hola ${state.user.display_name}`, "success");
+      announce(`Nombre guardado como ${state.user.display_name}`);
+    } finally {
+      setBusy(els.saveNameBtn, false);
+    }
+  };
 
-  async function createPendingPayment(country) {
-    const payload = {
-      ...profilePayload(),
-      country,
-      qty: 1,
-    };
+  const createPendingPayment = async (country) => {
+    state.pendingPurchase = true;
+    updateActionButtons();
 
-    const data = await apiPost(
-      ["/api/purchase", "/api/create-pending-purchase"],
-      payload
-    );
+    const actionButton = country === "AR" ? els.confirmArPaidBtn : els.confirmUyPaidBtn;
+    setBusy(actionButton, true, "Registrando...");
 
-    const purchase = normalizePurchaseShape(data, country);
-    setStatus("Pago pendiente", "Esperando aprobación");
-    toast(`Compra registrada: ${purchase.purchase_id}`, "success");
-    announce(`Pago pendiente registrado con referencia ${purchase.purchase_id}`);
-    return purchase;
-  }
+    try {
+      const payload = {
+        ...profilePayload(),
+        country,
+        qty: 1,
+      };
 
-  function openPayment(country) {
+      const data = await apiPost(API_PATHS.purchase, payload);
+      const purchase = normalizePurchaseShape(data, country);
+      setStatus("Pago pendiente", "Esperando aprobación");
+      toast(`Compra registrada: ${purchase.purchase_id}`, "success");
+      announce(`Pago pendiente registrado con referencia ${purchase.purchase_id}`);
+      return purchase;
+    } finally {
+      state.pendingPurchase = false;
+      setBusy(actionButton, false);
+      updateActionButtons();
+    }
+  };
+
+  const openPayment = (country) => {
     const url = country === "AR" ? config.mp_link_ar : config.mp_link_uy;
     if (!url) {
       toast("No hay link de pago configurado", "error");
@@ -895,43 +1107,70 @@
 
     const newWindow = window.open(url, "_blank", "noopener,noreferrer");
     if (!newWindow) {
-      window.location.href = url;
+      window.location.assign(url);
     }
-  }
+  };
 
-  async function refreshProfile() {
+  const refreshProfile = async () => {
     await syncProfile();
-  }
+  };
 
-  function beginSpinUi(mode) {
+  const clearRuntimeTimers = () => {
+    stopTicking();
+    stopBallAnimation();
+    stopWheelAnimation();
+    stopPointerKick();
+    clearTimeout(state.spinTimer);
+    clearTimeout(state.toastTimer);
+    clearTimeout(state.confettiTimer);
+    clearTimeout(state.liveTimer);
+  };
+
+  const highlightPrizeItem = (prizeId) => {
+    if (!els.prizeList) return;
+    const items = els.prizeList.querySelectorAll(".prize-item");
+    items.forEach((item) => item.classList.remove("active", "winner"));
+
+    if (!prizeId) return;
+    const current = els.prizeList.querySelector(`[data-prize-id="${cssEscape(prizeId)}"]`);
+    if (current) {
+      current.classList.add("active", "winner");
+      current.scrollIntoView({
+        behavior: isReducedMotion() ? "auto" : "smooth",
+        block: "nearest",
+      });
+    }
+  };
+
+  const beginSpinUi = (mode) => {
     state.spinning = true;
     state.spinSource = mode;
     els.wheelCard?.classList.add("spinning");
+    body?.classList.add("is-spinning");
     updateActionButtons();
     setStatus(mode === "demo" ? "Girando demo" : "Girando", "Animación activa");
     announce("La ruleta está girando");
-  }
+    highlightPrizeItem(null);
+  };
 
-  function endSpinUi() {
+  const endSpinUi = () => {
     state.spinning = false;
     state.spinSource = "paid";
     els.wheelCard?.classList.remove("spinning");
+    body?.classList.remove("is-spinning");
     updateActionButtons();
-  }
+  };
 
-  function calculateTargetRotation(index) {
+  const calculateTargetRotation = (index) => {
     const segmentAngle = 360 / config.prizes.length;
     const segmentCenter = index * segmentAngle + segmentAngle / 2;
-    const fullSpins = prefersReducedMotion.matches ? 3 : 8 + Math.floor(Math.random() * 4);
-    const fineOffset = prefersReducedMotion.matches ? 0 : (Math.random() * 8) - 4;
-    state.currentRotation += (fullSpins * 360) + (360 - segmentCenter) + fineOffset;
-    return {
-      segmentCenter,
-      rotation: state.currentRotation,
-    };
-  }
+    const fullSpins = isReducedMotion() ? 3 : 8 + Math.floor(Math.random() * 4);
+    const fineOffset = isReducedMotion() ? 0 : Math.random() * 7 - 3.5;
+    const rotation = state.currentRotation + fullSpins * 360 + (360 - segmentCenter) + fineOffset;
+    return { segmentCenter, rotation };
+  };
 
-  async function spinWheel(mode) {
+  const spinWheel = async (mode) => {
     if (state.spinning) return;
 
     if (mode === "paid" && state.user.fichas <= 0) {
@@ -946,13 +1185,14 @@
       return;
     }
 
+    clearRuntimeTimers();
     beginSpinUi(mode);
 
     try {
       await ensureAudioReady();
       playSpinStart();
 
-      const data = await apiPost("/api/spin", {
+      const data = await apiPost(API_PATHS.spin, {
         ...profilePayload(),
         mode,
       });
@@ -960,24 +1200,25 @@
       const normalized = normalizeSpinShape(data, mode);
       applyProfile(normalized.profile);
 
-      const prizeIndex = config.prizes.findIndex((item) => item.name === normalized.prize.name);
+      const prizeIndex = config.prizes.findIndex((item) => item.id === normalized.prize.id || normalizeLoose(item.name) === normalizeLoose(normalized.prize.name));
       if (prizeIndex < 0) {
         throw new Error("Premio no encontrado en la ruleta.");
       }
 
       const target = calculateTargetRotation(prizeIndex);
-      els.wheelSvg.style.transform = `rotate(${target.rotation}deg)`;
+      const spinDuration = getSpinDuration();
+      const ballFinalAngle = 360 - target.segmentCenter + 360;
 
-      const ballFinalAngle = (360 - target.segmentCenter) + 360;
-      const spinDuration = prefersReducedMotion.matches ? 1200 : 6000;
+      animateWheelRotation(target.rotation, spinDuration);
+      animateBallSpin(ballFinalAngle, spinDuration - 80);
+      triggerPointerKick(spinDuration - 1000);
+      startTicking(spinDuration - 450);
 
-      animateBallSpin(ballFinalAngle, spinDuration - 100);
-      triggerPointerKick(spinDuration - 1200);
-      startTicking(spinDuration - 500);
-
+      state.currentRotation = target.rotation;
       clearTimeout(state.spinTimer);
       state.spinTimer = window.setTimeout(() => {
         const result = {
+          id: normalized.prize.id,
           name: normalized.prize.name,
           label: normalized.prize.label,
           chance: normalized.prize.chance,
@@ -987,6 +1228,7 @@
         state.lastResult = result;
         persistUiState();
         renderWinner(result);
+        highlightPrizeItem(normalized.prize.id);
         playWinSound();
         fireConfetti();
         toast(`¡Ganaste: ${normalized.prize.name}!`, "success");
@@ -995,49 +1237,48 @@
         endSpinUi();
       }, spinDuration);
     } catch (error) {
-      stopTicking();
-      stopBallAnimation();
+      clearRuntimeTimers();
       toast(error?.message || "Error al girar la ruleta", "error");
       setStatus("Error", "Reintentar");
       announce("Hubo un error al girar la ruleta");
       endSpinUi();
     }
-  }
+  };
 
-  function openNameModal() {
+  const openNameModal = () => {
     if (!els.nameModal) return;
-    state.modalFocusedBeforeOpen = document.activeElement;
+    state.modalFocusedBeforeOpen = doc.activeElement;
     els.nameModal.classList.remove("hidden");
     els.nameModal.setAttribute("aria-hidden", "false");
-    document.documentElement.style.overflow = "hidden";
+    root.style.overflow = "hidden";
     window.setTimeout(() => {
       els.playerNameInput?.focus();
       els.playerNameInput?.select();
-    }, 20);
-  }
+    }, 25);
+  };
 
-  function closeNameModal() {
+  const closeNameModal = () => {
     if (!els.nameModal) return;
     els.nameModal.classList.add("hidden");
     els.nameModal.setAttribute("aria-hidden", "true");
-    document.documentElement.style.overflow = "";
+    root.style.overflow = "";
     if (state.modalFocusedBeforeOpen && typeof state.modalFocusedBeforeOpen.focus === "function") {
       state.modalFocusedBeforeOpen.focus();
     }
-  }
+  };
 
-  function maybeOpenNameModal() {
+  const maybeOpenNameModal = () => {
     if (!els.nameModal || !els.playerNameInput) return;
     const current = normalizeDisplayName(state.user.display_name);
-    els.playerNameInput.value = current && current !== "Jugador" ? current : "";
-    if (!current || current === "Jugador") {
+    els.playerNameInput.value = current && current !== DEFAULTS.displayName ? current : "";
+    if (!current || current === DEFAULTS.displayName) {
       openNameModal();
-    } else {
-      closeNameModal();
+      return;
     }
-  }
+    closeNameModal();
+  };
 
-  function trapModalFocus(event) {
+  const trapModalFocus = (event) => {
     if (!els.nameModal || els.nameModal.classList.contains("hidden")) return;
 
     if (event.key === "Escape") {
@@ -1049,84 +1290,99 @@
 
     const focusable = Array.from(
       els.nameModal.querySelectorAll('button, input, [href], select, textarea, [tabindex]:not([tabindex="-1"])')
-    ).filter((el) => !el.hasAttribute("disabled"));
+    ).filter((el) => !el.hasAttribute("disabled") && !el.getAttribute("aria-hidden"));
 
     if (!focusable.length) return;
 
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
 
-    if (event.shiftKey && document.activeElement === first) {
+    if (event.shiftKey && doc.activeElement === first) {
       event.preventDefault();
       last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
+    } else if (!event.shiftKey && doc.activeElement === last) {
       event.preventDefault();
       first.focus();
     }
-  }
+  };
 
-  function scrollToPayment() {
+  const scrollToPayment = () => {
     const target = state.currency === "ARS" ? els.payArBtn : els.payUyBtn;
     if (!target) return;
     target.scrollIntoView({
-      behavior: prefersReducedMotion.matches ? "auto" : "smooth",
+      behavior: isReducedMotion() ? "auto" : "smooth",
       block: "center",
     });
-  }
+  };
 
-  function onResize() {
-    clearTimeout(state.resizeTimer);
-    state.resizeTimer = window.setTimeout(() => {
+  const onResize = debounce(
+    rafThrottle(() => {
       renderStars();
       renderParticles();
       renderLights();
-    }, 120);
-  }
+      setBallPosition(0, getIdleBallRadius());
+    }),
+    100
+  );
 
-  function onVisibilityChange() {
-    if (document.hidden) {
-      stopTicking();
-      if (state.audioCtx?.state === "running") {
-        state.audioCtx.suspend().catch(() => {});
-      }
+  const onVisibilityChange = () => {
+    if (!doc.hidden) return;
+    stopTicking();
+    if (state.audio.ctx?.state === "running") {
+      state.audio.ctx.suspend().catch(() => {});
     }
-  }
+  };
 
-  function onFirstInteraction() {
+  const onFirstInteraction = () => {
     ensureAudioReady();
     window.removeEventListener("pointerdown", onFirstInteraction);
     window.removeEventListener("keydown", onFirstInteraction);
     window.removeEventListener("touchstart", onFirstInteraction);
-  }
+  };
 
-  function bindEvent(el, eventName, handler, options) {
+  const bindEvent = (el, eventName, handler, options) => {
     if (el) el.addEventListener(eventName, handler, options);
-  }
+  };
 
-  function bindEvents() {
+  const bindMediaListener = (mq, handler) => {
+    if (!mq) return;
+    if (typeof mq.addEventListener === "function") {
+      mq.addEventListener("change", handler);
+      return;
+    }
+    if (typeof mq.addListener === "function") {
+      mq.addListener(handler);
+    }
+  };
+
+  const handleCurrencyChange = (nextCurrency) => {
+    const safeCurrency = normalizeCurrency(nextCurrency);
+    if (state.currency === safeCurrency) return;
+    state.currency = safeCurrency;
+    renderTicket();
+    renderPrizeList();
+    updateCurrencyButtons();
+    persistUiState();
+    toast(`Moneda cambiada a ${safeCurrency}`);
+    announce(`Moneda cambiada a ${safeCurrency === "ARS" ? "pesos argentinos" : "pesos uruguayos"}`);
+
+    if (state.lastResult?.id) {
+      const match = config.prizes.find((item) => item.id === state.lastResult.id);
+      if (match) {
+        state.lastResult.label = formatMoneyValueFromUyu(match.uyu_price, state.currency).label;
+        renderWinner(state.lastResult);
+        persistUiState();
+      }
+    }
+  };
+
+  const bindEvents = () => {
     bindEvent(els.spinBtn, "click", () => spinWheel("paid"));
     bindEvent(els.demoBtn, "click", () => spinWheel("demo"));
     bindEvent(els.buyBtn, "click", scrollToPayment);
 
-    bindEvent(els.btnUyu, "click", () => {
-      state.currency = "UYU";
-      renderTicket();
-      renderPrizeList();
-      updateCurrencyButtons();
-      persistUiState();
-      toast("Moneda cambiada a UYU");
-      announce("Moneda cambiada a pesos uruguayos");
-    });
-
-    bindEvent(els.btnArs, "click", () => {
-      state.currency = "ARS";
-      renderTicket();
-      renderPrizeList();
-      updateCurrencyButtons();
-      persistUiState();
-      toast("Moneda cambiada a ARS");
-      announce("Moneda cambiada a pesos argentinos");
-    });
+    bindEvent(els.btnUyu, "click", () => handleCurrencyChange("UYU"));
+    bindEvent(els.btnArs, "click", () => handleCurrencyChange("ARS"));
 
     bindEvent(els.payArBtn, "click", () => openPayment("AR"));
     bindEvent(els.payUyBtn, "click", () => openPayment("UY"));
@@ -1159,6 +1415,14 @@
 
     bindEvent(els.skipNameBtn, "click", closeNameModal);
 
+    bindEvent(els.playerNameInput, "input", () => {
+      if (!els.playerNameInput) return;
+      const safeName = normalizeDisplayName(els.playerNameInput.value);
+      if (safeName !== els.playerNameInput.value) {
+        els.playerNameInput.value = safeName;
+      }
+    });
+
     bindEvent(els.playerNameInput, "keydown", async (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -1172,39 +1436,40 @@
 
     bindEvent(window, "resize", onResize, { passive: true });
     bindEvent(window, "orientationchange", onResize, { passive: true });
-    bindEvent(document, "keydown", trapModalFocus);
-    bindEvent(document, "visibilitychange", onVisibilityChange);
-    bindEvent(window, "pointerdown", onFirstInteraction, { passive: true, once: false });
-    bindEvent(window, "keydown", onFirstInteraction, { passive: true, once: false });
-    bindEvent(window, "touchstart", onFirstInteraction, { passive: true, once: false });
-
-    if (typeof prefersReducedMotion.addEventListener === "function") {
-      prefersReducedMotion.addEventListener("change", () => {
-        renderStars();
-        renderParticles();
-        renderLights();
-        updateActionButtons();
-      });
-    }
-
-    if (typeof prefersContrast.addEventListener === "function") {
-      prefersContrast.addEventListener("change", () => {
-        renderPrizeList();
-        renderProfile();
-      });
-    }
-
-    bindEvent(window, "pagehide", () => {
-      stopTicking();
-      stopBallAnimation();
-      clearTimeout(state.spinTimer);
-      clearTimeout(state.toastTimer);
-      clearTimeout(state.resizeTimer);
-      clearTimeout(state.confettiTimer);
+    bindEvent(doc, "keydown", trapModalFocus);
+    bindEvent(doc, "visibilitychange", onVisibilityChange);
+    bindEvent(window, "online", () => {
+      toast("Conexión restaurada", "success");
+      announce("Conexión restaurada");
     });
-  }
+    bindEvent(window, "offline", () => {
+      toast("Sin conexión a internet", "error");
+      announce("Sin conexión a internet");
+    });
+    bindEvent(window, "pointerdown", onFirstInteraction, { passive: true });
+    bindEvent(window, "keydown", onFirstInteraction, { passive: true });
+    bindEvent(window, "touchstart", onFirstInteraction, { passive: true });
 
-  function boot() {
+    bindMediaListener(media.reducedMotion, () => {
+      renderStars();
+      renderParticles();
+      renderLights();
+      updateActionButtons();
+      setBallPosition(0, getIdleBallRadius());
+    });
+
+    bindMediaListener(media.contrast, () => {
+      renderPrizeList();
+      renderProfile();
+      renderPersistedWinner();
+    });
+
+    bindEvent(window, "pagehide", clearRuntimeTimers);
+    bindEvent(window, "beforeunload", clearRuntimeTimers);
+  };
+
+  const boot = () => {
+    root.dataset.ruletaVersion = APP_VERSION;
     renderStars();
     renderParticles();
     renderLights();
@@ -1215,21 +1480,22 @@
     renderPersistedWinner();
     updateCurrencyButtons();
     setStatus("Lista para girar", "Esperando");
-    setBallPosition(0, 42);
+    setBallPosition(0, getIdleBallRadius());
     bindEvents();
     maybeOpenNameModal();
 
     if (state.lastResult?.name) {
       announce(`Último premio: ${state.lastResult.name}`);
+      highlightPrizeItem(state.lastResult.id || resolvePrizeByName(state.lastResult.name)?.id || null);
     }
 
-    if (isTouchDevice) {
-      document.body.classList.add("is-touch");
+    if (isTouchDevice()) {
+      body?.classList.add("is-touch");
     }
-  }
+  };
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot, { once: true });
+  if (doc.readyState === "loading") {
+    doc.addEventListener("DOMContentLoaded", boot, { once: true });
   } else {
     boot();
   }

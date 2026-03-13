@@ -20,7 +20,7 @@
   <link rel="preload" href="{{ url_for('static', filename='js/wheel.js') }}" as="script">
 </head>
 <body
-  class="app-body"
+  class="app-body app-body--luxury"
   data-app="ruleta"
   data-bot-name="{{ bot_name|default('Ruleta Premium', true)|e }}"
   data-currency="{{ currency|default('UYU', true)|e }}"
@@ -36,9 +36,14 @@
 >
   <a href="#mainContent" class="sr-only focusable">Saltar al contenido principal</a>
 
+  <div class="page-glow page-glow--top" aria-hidden="true"></div>
+  <div class="page-glow page-glow--left" aria-hidden="true"></div>
+  <div class="page-glow page-glow--right" aria-hidden="true"></div>
+
   <div class="stars" id="stars" aria-hidden="true"></div>
   <div class="particles" id="particles" aria-hidden="true"></div>
   <div class="confetti-wrap" id="confettiWrap" aria-hidden="true"></div>
+  <div class="confetti-wrap confetti-wrap--secondary" id="confettiWrapSecondary" aria-hidden="true"></div>
 
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <div class="sr-only" id="liveRegion" aria-live="polite" aria-atomic="true"></div>
@@ -55,17 +60,18 @@
     <div class="card" style="margin:16px;">
       <div class="card-header">
         <h1 class="title">{{ bot_name|default('Ruleta Premium', true) }}</h1>
-        <div class="subtitle">Esta ruleta necesita JavaScript activado para funcionar correctamente.</div>
-        <p class="promo-copy">Podés activarlo y volver a entrar para usar la demo, comprar fichas y girar la ruleta.</p>
+        <p class="promo-copy">Activá JavaScript para usar la demo, comprar fichas y girar la ruleta.</p>
       </div>
     </div>
   </noscript>
 
-  <main class="layout" id="mainContent">
-    <section class="card" id="wheelCard" aria-labelledby="pageTitle">
+  <main class="layout layout--premium" id="mainContent">
+    <section class="card card--hero" id="wheelCard" aria-labelledby="pageTitle">
       <div class="spin-glow" aria-hidden="true"></div>
+      <div class="hero-shine" aria-hidden="true"></div>
+      <div class="hero-border-glow" aria-hidden="true"></div>
 
-      <header class="card-header">
+      <header class="card-header card-header--hero">
         <div class="top-meta">
           <div class="title-badge" aria-label="Experiencia casino premium">CASINO PREMIUM</div>
 
@@ -84,14 +90,10 @@
           </div>
         </div>
 
-        <h1 class="title" id="pageTitle">
+        <h1 class="title title--hero" id="pageTitle">
           <span class="accent">Ruleta de Premios</span>
           <span class="brand-name">{{ bot_name|default('Jeny', true) }}</span>
         </h1>
-
-        <p class="subtitle" id="pageSubtitle">
-          Diseño premium estilo casino con ruleta 3D, luces LED, pelotita animada, demo transparente, compra de fichas y premios visibles.
-        </p>
 
         {% if preview_notice|default('', true) %}
         <div
@@ -105,12 +107,14 @@
         </div>
         {% endif %}
 
-        <p class="promo-copy">
+        <div class="promo-copy promo-copy--hero">
           <strong>🎰 Comprá tu ficha y probá tu suerte</strong>
-          Girá por packs, videos, bundles y premios especiales. La demo sirve para ver la experiencia y la versión con ficha usa la tirada real.
-        </p>
+          <span>
+            Girá por packs, videos, bundles y premios especiales. La demo sirve para ver la experiencia y la versión con ficha usa la tirada real.
+          </span>
+        </div>
 
-        <section class="mini-stats" aria-label="Resumen rápido de la ruleta">
+        <section class="mini-stats mini-stats--hero" aria-label="Resumen rápido de la ruleta">
           <article class="mini-stat">
             <div class="mini-stat-label">Valor ficha</div>
             <output class="mini-stat-value" id="miniTicket" aria-live="polite">{{ ticket_price|default('', true) }}</output>
@@ -133,31 +137,39 @@
         </section>
       </header>
 
-      <div class="card-body">
-        <section class="wheel-stage" aria-labelledby="wheelAreaTitle">
+      <div class="card-body card-body--hero">
+        <section class="wheel-stage wheel-stage--premium" aria-labelledby="wheelAreaTitle">
           <h2 class="sr-only" id="wheelAreaTitle">Área principal de la ruleta</h2>
 
+          <div class="wheel-spotlight wheel-spotlight--left" aria-hidden="true"></div>
+          <div class="wheel-spotlight wheel-spotlight--right" aria-hidden="true"></div>
+
           <div
-            class="wheel-wrap"
+            class="wheel-wrap wheel-wrap--premium"
             id="wheelWrap"
             role="img"
             aria-label="Ruleta de premios estilo casino con puntero y pelota animada"
           >
             <div class="wheel-floor" aria-hidden="true"></div>
             <div class="wheel-aura" aria-hidden="true"></div>
+            <div class="wheel-aura wheel-aura--secondary" aria-hidden="true"></div>
             <div class="halo-ring" aria-hidden="true"></div>
             <div class="halo-ring two" aria-hidden="true"></div>
+            <div class="halo-ring three" aria-hidden="true"></div>
             <div class="wheel-outer-metal" aria-hidden="true"></div>
             <div class="wheel-reflection" aria-hidden="true"></div>
+            <div class="wheel-reflection wheel-reflection--secondary" aria-hidden="true"></div>
 
-            <div class="pointer-wrap" aria-hidden="true">
+            <div class="pointer-wrap pointer-wrap--premium" aria-hidden="true">
               <div class="pointer-cap"></div>
+              <div class="pointer-cap pointer-cap--outer"></div>
               <div class="pointer" id="pointer"></div>
             </div>
 
-            <div class="wheel-shell">
+            <div class="wheel-shell wheel-shell--premium">
               <div class="wheel-inner-ring" aria-hidden="true"></div>
               <div class="wheel-depth" aria-hidden="true"></div>
+              <div class="wheel-depth wheel-depth--inner" aria-hidden="true"></div>
 
               <svg
                 id="wheelSvg"
@@ -169,23 +181,26 @@
               ></svg>
 
               <div class="wheel-gloss" aria-hidden="true"></div>
+              <div class="wheel-gloss wheel-gloss--secondary" aria-hidden="true"></div>
             </div>
 
-            <div class="ball-track" id="ballTrack" aria-hidden="true">
-              <div class="ball" id="ball"></div>
+            <div class="ball-track ball-track--premium" id="ballTrack" aria-hidden="true">
+              <div class="ball ball--xl" id="ball">
+                <span class="ball-highlight" aria-hidden="true"></span>
+              </div>
             </div>
 
-            <div class="wheel-center" aria-hidden="true"></div>
+            <div class="wheel-center wheel-center--premium" aria-hidden="true"></div>
             <div class="lights" id="lights" aria-hidden="true"></div>
           </div>
         </section>
 
-        <section class="controls" aria-labelledby="controlsTitle">
+        <section class="controls controls--premium" aria-labelledby="controlsTitle">
           <h2 class="sr-only" id="controlsTitle">Controles de la ruleta</h2>
 
           <button
             id="spinBtn"
-            class="btn"
+            class="btn btn--primary btn--xl"
             type="button"
             data-action="spin-ticket"
             aria-label="Girar la ruleta usando una ficha"
@@ -194,10 +209,10 @@
             🎰 GIRAR CON FICHA
           </button>
 
-          <div class="btn-row" role="group" aria-label="Acciones principales">
+          <div class="btn-row btn-row--actions" role="group" aria-label="Acciones principales">
             <button
               id="demoBtn"
-              class="btn-demo"
+              class="btn-demo btn-demo--premium"
               type="button"
               data-action="spin-demo"
               aria-label="Probar una tirada demo"
@@ -208,7 +223,7 @@
 
             <button
               id="buyBtn"
-              class="btn-pay"
+              class="btn-pay btn-pay--premium"
               type="button"
               data-action="buy-ticket"
               aria-label="Comprar una ficha"
@@ -221,7 +236,7 @@
           <div class="btn-subline">suerte • brillo • premios • casino premium</div>
 
           <div class="info-label">Valor de la ficha</div>
-          <output class="ticket" id="ticketPrice" aria-live="polite">{{ ticket_price|default('', true) }}</output>
+          <output class="ticket ticket--hero" id="ticketPrice" aria-live="polite">{{ ticket_price|default('', true) }}</output>
 
           <div class="action-help" id="actionHelp" role="note">
             La demo muestra la experiencia visual. La tirada con ficha usa el modo real.
@@ -234,7 +249,7 @@
       </div>
     </section>
 
-    <aside class="card" aria-labelledby="panelTitle">
+    <aside class="card card--panel" aria-labelledby="panelTitle">
       <header class="card-header">
         <div class="panel-top">
           <h2 class="small-title" id="panelTitle">Panel</h2>
@@ -290,7 +305,7 @@
         </section>
 
         <section
-          class="winner"
+          class="winner winner--premium"
           id="winnerBox"
           aria-labelledby="winnerTitle"
           role="status"
@@ -303,7 +318,7 @@
           <div class="winner-badge">Sin resultado todavía</div>
         </section>
 
-        <section class="buy-card" aria-labelledby="buySectionTitle">
+        <section class="buy-card buy-card--premium" aria-labelledby="buySectionTitle">
           <div class="section-head">
             <div class="info-label" id="buySectionTitle">Comprar fichas</div>
             <div class="chip">1 compra = 1 ficha</div>
@@ -506,6 +521,12 @@
       ui: Object.freeze({
         has_demo_notice: {{ (preview_notice|default('', true) != '')|tojson }},
         transparent_demo: {{ ((preview_mode|default('ticket', true)) == 'demo')|tojson }}
+      }),
+      fx: Object.freeze({
+        confetti_primary_count: 260,
+        confetti_secondary_count: 140,
+        ball_scale: 1.35,
+        aura_boost: true
       })
     });
   </script>

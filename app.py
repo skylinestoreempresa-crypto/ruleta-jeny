@@ -36,14 +36,11 @@ from utils import (
     update_user_profile,
 )
 
-
 DEMO_MODE_LABEL = "DEMO"
 REAL_MODE_LABEL = "Tirada real"
 DEMO_MODE_NOTICE = "Los resultados del demo son ilustrativos y usan probabilidades de vista previa."
 VALID_MODES = {"auto", "demo", "ticket"}
 
-# Real: mantiene tus porcentajes actuales
-# Demo: muestra todas las opciones, pero el Gran premio tiene el peso más alto
 DEFAULT_PRIZES = [
     {"name": "💋 Pose favorita", "chance": 35.9, "uyu_price": 200, "weight": 359, "demo_weight": 130},
     {"name": "📷 Pack digital", "chance": 24.0, "uyu_price": 350, "weight": 240, "demo_weight": 95},
@@ -52,7 +49,7 @@ DEFAULT_PRIZES = [
     {"name": "🎬 Video exclusivo 3 min", "chance": 6.0, "uyu_price": 750, "weight": 60, "demo_weight": 40},
     {"name": "📸 10 imágenes premium", "chance": 4.0, "uyu_price": 1000, "weight": 40, "demo_weight": 30},
     {"name": "💬 Chat VIP 30 minutos", "chance": 2.0, "uyu_price": 950, "weight": 20, "demo_weight": 20},
-    {"name": "💎 Gran premio ENCUENTRO", "chance": 0.1, "uyu_price": 1500, "weight": 1, "demo_weight": 320},
+    {"name": "💎 Gran Premio VIP", "chance": 0.1, "uyu_price": 1500, "weight": 1, "demo_weight": 320},
 ]
 
 
@@ -66,6 +63,7 @@ def _env_int(name: str, default: int, minimum: int | None = None, maximum: int |
         value = int(raw)
     except (TypeError, ValueError):
         value = default
+
     if minimum is not None and value < minimum:
         value = minimum
     if maximum is not None and value > maximum:
@@ -124,7 +122,7 @@ SETTINGS = Settings(
     log_file=Path(_env_str("LOG_FILE", "spins_log.json")),
     users_file=Path(_env_str("USERS_FILE", "users_data.json")),
     purchases_file=Path(_env_str("PURCHASES_FILE", "pending_purchases.json")),
-    mp_link_ar=_env_str("MP_LINK_AR", "https://mpago.la/1vUBfHc"),
+    mp_link_ar=_env_str("MP_LINK_AR", "https://mpago.la/2i4eVRE"),
     mp_link_uy=_env_str("MP_LINK_UY", "https://mpago.la/1Zgex99"),
     run_telegram_bot=_env_bool("RUN_TELEGRAM_BOT", False),
     start_telegram_with_web=_env_bool("START_TELEGRAM_WITH_WEB", False),
@@ -137,7 +135,6 @@ SETTINGS = Settings(
     admin_api_key=_env_str("ADMIN_API_KEY"),
     app_secret_key=_env_str("APP_SECRET_KEY", "ruleta-pro-secret"),
 )
-
 
 logging.basicConfig(
     level=getattr(logging, SETTINGS.log_level, logging.INFO),
@@ -710,6 +707,7 @@ def _parse_int(value: Any, default: int = 0, minimum: int | None = None, maximum
         result = int(value)
     except (TypeError, ValueError):
         result = default
+
     if minimum is not None and result < minimum:
         result = minimum
     if maximum is not None and result > maximum:
@@ -773,7 +771,8 @@ def _inline_home_html(context: dict[str, Any]) -> str:
             body {
               margin: 0;
               font-family: Arial, Helvetica, sans-serif;
-              background: radial-gradient(circle at top, #2a1b59 0%, #120b28 45%, #090611 100%);
+              background:
+                radial-gradient(circle at top, #4d0f2f 0%, #1b0824 40%, #090611 100%);
               color: #fff;
               min-height: 100vh;
               display: grid;
@@ -807,9 +806,9 @@ def _inline_home_html(context: dict[str, Any]) -> str:
               border: 1px solid rgba(255, 214, 10, 0.28);
             }
             h1 {
-              margin: 0 0 10px;
-              font-size: 42px;
-              line-height: 1.05;
+              margin: 0 0 14px;
+              font-size: 48px;
+              line-height: 1;
             }
             p {
               margin: 0 0 22px;
@@ -948,6 +947,7 @@ def create_flask_app() -> Flask:
             user_id = int(request_user_id)
             first_name = request_display_name or (request_full_name.split(" ")[0] if request_full_name else "")
             last_name = ""
+
             if request_full_name and " " in request_full_name:
                 parts = request_full_name.split(" ", 1)
                 first_name = parts[0]
@@ -1411,6 +1411,7 @@ def run_telegram_bot() -> None:
     if not SETTINGS.run_telegram_bot:
         logger.info("Bot de Telegram desactivado por configuración")
         return
+
     if not SETTINGS.token:
         raise RuntimeError("Falta TELEGRAM_BOT_TOKEN y RUN_TELEGRAM_BOT está activo")
 

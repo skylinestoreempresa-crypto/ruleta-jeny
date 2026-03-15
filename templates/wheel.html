@@ -1,872 +1,624 @@
-(() => {
-  "use strict";
-
-  const raw = window.RULETA_CONFIG || {};
-
-  const byId = (id) => document.getElementById(id);
-  const safeText = (value, fallback = "") => {
-    const text = String(value ?? "").replace(/\s+/g, " ").trim();
-    return text || fallback;
-  };
-  const safeInt = (value, fallback = 0) => {
-    const n = Number.parseInt(value, 10);
-    return Number.isFinite(n) ? n : fallback;
-  };
-  const safeFloat = (value, fallback = 0) => {
-    const n = Number.parseFloat(value);
-    return Number.isFinite(n) ? n : fallback;
-  };
-  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-  const normalizeAngle = (deg) => ((deg % 360) + 360) % 360;
-  const easeOutQuint = (t) => 1 - Math.pow(1 - t, 5);
-
-  const defaultPrizes = [
-    { name: "Pose favorita", weight: 35.9, uyu_price: 200, colorA: "#ff85b6", colorB: "#8f5cff", badge: "Top" },
-    { name: "Pack digital", weight: 24, uyu_price: 350, colorA: "#ffd45e", colorB: "#ff8a3d", badge: "Hot" },
-    { name: "Video personalizado", weight: 18, uyu_price: 500, colorA: "#9feeff", colorB: "#35cfff", badge: "Pro" },
-    { name: "Pack especial", weight: 10, uyu_price: 700, colorA: "#ff9768", colorB: "#ff4d88", badge: "VIP" },
-    { name: "Video exclusivo 3 min", weight: 6, uyu_price: 750, colorA: "#c8afff", colorB: "#6a36ff", badge: "Elite" },
-    { name: "10 imágenes premium", weight: 4, uyu_price: 1000, colorA: "#fff0b0", colorB: "#d89b10", badge: "Gold" },
-    { name: "Chat VIP 30 minutos", weight: 2, uyu_price: 950, colorA: "#b5ffe6", colorB: "#23d091", badge: "Rare" }
-  ];
-
-  const normalizePrize = (prize, index, uyuToArs) => {
-    const weight = safeFloat(prize.weight ?? prize.chance, 1);
-    const uyuPrice = safeInt(prize.uyu_price ?? prize.price_uyu ?? prize.price ?? 0, 0);
-    const arsPrice = safeInt(prize.ars_price, Math.round(uyuPrice * uyuToArs));
-    const name = safeText(prize.name, `Premio ${index + 1}`);
-
-    const palette = [
-      ["#ff8fbe", "#8f5cff"],
-      ["#ffd45e", "#ff8a3d"],
-      ["#9feeff", "#35cfff"],
-      ["#ff9768", "#ff4d88"],
-      ["#c8afff", "#6a36ff"],
-      ["#fff0b0", "#d89b10"],
-      ["#b5ffe6", "#23d091"],
-      ["#ffaad7", "#ff5f98"]
-    ];
-
-    const colors = palette[index % palette.length];
-
-    return {
-      id: index,
-      name,
-      weight,
-      uyuPrice,
-      arsPrice,
-      colorA: safeText(prize.colorA, colors[0]),
-      colorB: safeText(prize.colorB, colors[1]),
-      badge: safeText(prize.badge, "Premio"),
-      raw: prize
-    };
-  };
-
-  const config = {
-    prizes: Array.isArray(raw.prizes) && raw.prizes.length ? raw.prizes : defaultPrizes,
-    currency: safeText(raw.currency, "UYU").toUpperCase() === "ARS" ? "ARS" : "UYU",
-    userId: safeText(raw.user_id, "guest"),
-    username: safeText(raw.username, ""),
-    displayName: safeText(raw.display_name, ""),
-    fullName: safeText(raw.full_name, ""),
-    botName: safeText(raw.bot_name, "Ruleta Premium"),
-    previewMode: safeText(raw.preview_mode, "ticket"),
-    previewLabel: safeText(raw.preview_label, "Tirada real"),
-    previewNotice: safeText(raw.preview_notice, ""),
-    ticketPriceUyu: safeInt(raw.ticket_price_uyu, 250),
-    ticketPriceLabel: safeText(raw.ticket_price_label, ""),
-    demoSpinsLeft: safeInt(raw.demo_spins_left, 1),
-    fichas: safeInt(raw.fichas, 0),
-    uyuToArs: safeFloat(raw.uyu_to_ars, 25),
-    paymentLinks: {
-      AR: safeText(raw.mp_link_ar, ""),
-      UY: safeText(raw.mp_link_uy, "")
-    },
-    endpoints: raw.endpoints || {}
-  };
-
-  const state = {
-    prizes: [],
-    currency: config.currency,
-    fichas: config.fichas,
-    demoSpinsLeft: config.demoSpinsLeft,
-    spinning: false,
-    currentRotation: 0,
-    activeIndex: -1,
-    totalWeight: 0,
-    displayName: "",
-    firstOpenDone: false
-  };
-
-  const els = {
-    stars: byId("stars"),
-    particles: byId("particles"),
-    confettiWrap: byId("confettiWrap"),
-    toast: byId("toast"),
-    liveRegion: byId("liveRegion"),
-
-    wheelWrap: byId("wheelWrap"),
-    wheelSvg: byId("wheelSvg"),
-    ball: byId("ball"),
-    ballShadow: byId("ballShadow"),
-    lights: byId("lights"),
-
-    spinBtn: byId("spinBtn"),
-    demoBtn: byId("demoBtn"),
-    buyBtn: byId("buyBtn"),
-    btnUyu: byId("btnUyu"),
-    btnArs: byId("btnArs"),
-    payArBtn: byId("payArBtn"),
-    payUyBtn: byId("payUyBtn"),
-    confirmArPaidBtn: byId("confirmArPaidBtn"),
-    confirmUyPaidBtn: byId("confirmUyPaidBtn"),
-
-    ticketPrice: byId("ticketPrice"),
-    miniTicket: byId("miniTicket"),
-    realPrizeCount: byId("realPrizeCount"),
-    miniFichas: byId("miniFichas"),
-    miniDemo: byId("miniDemo"),
-
-    greetingTitle: byId("greetingTitle"),
-    greetingText: byId("greetingText"),
-    playerNameText: byId("playerNameText"),
-    fichasValue: byId("fichasValue"),
-    statusValue: byId("statusValue"),
-    spinState: byId("spinState"),
-    winnerMain: byId("winnerMain"),
-    winnerSub: byId("winnerSub"),
-    winnerBadge: byId("winnerBadge"),
-    prizeList: byId("prizeList"),
-    totalItemsChip: byId("totalItemsChip"),
-    currencyChip: byId("currencyChip"),
-    previewChip: byId("previewChip"),
-    transparencyText: byId("transparencyText"),
-    modeBadgeText: byId("modeBadgeText"),
-
-    nameModal: byId("nameModal"),
-    playerNameInput: byId("playerNameInput"),
-    saveNameBtn: byId("saveNameBtn"),
-    skipNameBtn: byId("skipNameBtn"),
-    prizeItemTemplate: byId("prizeItemTemplate")
-  };
-
-  const storageKey = `ruleta_player_name_${config.userId || "guest"}`;
-
-  function sanitizeName(value) {
-    return safeText(value)
-      .replace(/[<>{}[\]\\/_|~^`]/g, "")
-      .slice(0, 40)
-      .trim();
-  }
-
-  function announce(message) {
-    if (els.liveRegion) {
-      els.liveRegion.textContent = message;
-    }
-  }
-
-  function showToast(message) {
-    if (!els.toast) return;
-    els.toast.textContent = message;
-    els.toast.classList.add("show");
-    announce(message);
-    clearTimeout(showToast._timer);
-    showToast._timer = setTimeout(() => {
-      els.toast.classList.remove("show");
-    }, 2200);
-  }
-
-  function openModal() {
-    if (!els.nameModal) return;
-    els.nameModal.classList.add("is-open");
-    els.nameModal.setAttribute("aria-hidden", "false");
-    document.body.classList.add("has-modal");
-    setTimeout(() => {
-      els.playerNameInput?.focus();
-      els.playerNameInput?.select();
-    }, 60);
-  }
-
-  function closeModal() {
-    if (!els.nameModal) return;
-    els.nameModal.classList.remove("is-open");
-    els.nameModal.setAttribute("aria-hidden", "true");
-    document.body.classList.remove("has-modal");
-  }
-
-  function formatMoney(value, currency = state.currency) {
-    const amount = Number.isFinite(Number(value)) ? Number(value) : 0;
-    const formatted = new Intl.NumberFormat("es-UY").format(amount);
-    return `$${formatted} ${currency}`;
-  }
-
-  function ticketLabel() {
-    const priceUyu = safeInt(config.ticketPriceUyu, 250);
-    if (state.currency === "ARS") {
-      return formatMoney(Math.round(priceUyu * config.uyuToArs), "ARS");
-    }
-    return formatMoney(priceUyu, "UYU");
-  }
-
-  function prizePriceLabel(prize) {
-    return state.currency === "ARS"
-      ? formatMoney(prize.arsPrice, "ARS")
-      : formatMoney(prize.uyuPrice, "UYU");
-  }
-
-  function computeChance(weight) {
-    if (!state.totalWeight) return "0%";
-    return `${((weight / state.totalWeight) * 100).toFixed(1)}%`;
-  }
-
-  function updateHeaderGreeting() {
-    const player = state.displayName || "Jugador";
-    if (els.greetingTitle) {
-      els.greetingTitle.textContent = state.displayName ? `Hola, ${player}` : "Hola";
-    }
-    if (els.greetingText) {
-      els.greetingText.textContent = state.displayName
-        ? `Bienvenido ${player}. Mucha suerte en la ruleta de ${config.botName}.`
-        : "Bienvenido. Mucha suerte en la ruleta.";
-    }
-    if (els.playerNameText) {
-      els.playerNameText.textContent = player;
-    }
-  }
-
-  function updateCounters() {
-    if (els.ticketPrice) els.ticketPrice.textContent = ticketLabel();
-    if (els.miniTicket) els.miniTicket.textContent = ticketLabel();
-    if (els.realPrizeCount) els.realPrizeCount.textContent = String(state.prizes.length);
-    if (els.miniFichas) els.miniFichas.textContent = String(state.fichas);
-    if (els.miniDemo) els.miniDemo.textContent = String(state.demoSpinsLeft);
-    if (els.fichasValue) els.fichasValue.textContent = `${state.fichas} fichas`;
-    if (els.currencyChip) els.currencyChip.textContent = `Moneda ${state.currency}`;
-    if (els.previewChip) els.previewChip.textContent = config.previewLabel;
-    if (els.modeBadgeText) els.modeBadgeText.textContent = config.previewLabel;
-    if (els.totalItemsChip) els.totalItemsChip.textContent = `${state.prizes.length} premios`;
-  }
-
-  function updateCurrencyButtons() {
-    els.btnUyu?.classList.toggle("is-active", state.currency === "UYU");
-    els.btnArs?.classList.toggle("is-active", state.currency === "ARS");
-  }
-
-  function setStatus(text, spinState = null) {
-    if (els.statusValue) els.statusValue.textContent = text;
-    if (spinState && els.spinState) els.spinState.textContent = spinState;
-  }
-
-  function splitLabel(text) {
-    const clean = safeText(text);
-    if (clean.length <= 14) return [clean];
-    const words = clean.split(" ");
-    if (words.length === 1) return [clean.slice(0, 14), clean.slice(14)];
-    const first = [];
-    const second = [];
-    let target = first;
-
-    for (const word of words) {
-      const candidate = [...target, word].join(" ");
-      if (candidate.length > 14 && target === first) {
-        target = second;
-      }
-      target.push(word);
-    }
-
-    const line1 = first.join(" ").trim();
-    const line2 = second.join(" ").trim();
-    return line2 ? [line1, line2] : [line1];
-  }
-
-  function polar(cx, cy, r, angleDeg) {
-    const rad = (angleDeg - 90) * Math.PI / 180;
-    return {
-      x: cx + r * Math.cos(rad),
-      y: cy + r * Math.sin(rad)
-    };
-  }
-
-  function describeSlice(cx, cy, r, startAngle, endAngle) {
-    const start = polar(cx, cy, r, endAngle);
-    const end = polar(cx, cy, r, startAngle);
-    const largeArc = endAngle - startAngle <= 180 ? "0" : "1";
-    return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`;
-  }
-
-  function renderWheel() {
-    if (!els.wheelSvg) return;
-
-    const segmentAngle = 360 / state.prizes.length;
-
-    const defs = [
-      `<defs>`,
-      `<radialGradient id="wheelCenterGlow" cx="50%" cy="50%" r="70%">`,
-      `<stop offset="0%" stop-color="rgba(255,255,255,.20)" />`,
-      `<stop offset="100%" stop-color="rgba(0,0,0,.12)" />`,
-      `</radialGradient>`,
-      ...state.prizes.map((prize, index) => `
-        <linearGradient id="seg-${index}" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="${prize.colorA}"/>
-          <stop offset="100%" stop-color="${prize.colorB}"/>
-        </linearGradient>
-      `),
-      `</defs>`
-    ].join("");
-
-    const slices = state.prizes.map((prize, index) => {
-      const start = -90 + index * segmentAngle;
-      const end = start + segmentAngle;
-      const mid = start + segmentAngle / 2;
-      const path = describeSlice(50, 50, 46, start, end);
-
-      const labelRadius = 31;
-      const point = polar(50, 50, labelRadius, mid);
-      const textRotation = mid > 90 && mid < 270 ? mid + 180 : mid;
-      const lines = splitLabel(prize.name);
-      const plateWidth = 18;
-      const plateHeight = lines.length > 1 ? 8 : 6;
-      const textY = lines.length > 1 ? -1.2 : 0.8;
-      const chance = computeChance(prize.weight);
-
-      return `
-        <g class="wheel-segment" data-index="${index}">
-          <path class="wheel-segment-path" d="${path}" fill="url(#seg-${index})"></path>
-          <g transform="translate(${point.x} ${point.y}) rotate(${textRotation})">
-            <rect class="wheel-segment-plate" x="-${plateWidth / 2}" y="-${plateHeight / 2}" width="${plateWidth}" height="${plateHeight}" rx="2.2"></rect>
-            <text class="wheel-segment-text" text-anchor="middle" dominant-baseline="middle" y="${textY}">
-              ${lines.map((line, lineIndex) => (
-                `<tspan x="0" dy="${lineIndex === 0 ? 0 : 3.4}">${line}</tspan>`
-              )).join("")}
-            </text>
-          </g>
-          <title>${prize.name} · ${chance}</title>
-        </g>
-      `;
-    }).join("");
-
-    els.wheelSvg.innerHTML = `
-      ${defs}
-      <circle cx="50" cy="50" r="47.4" fill="rgba(255,255,255,.03)"></circle>
-      ${slices}
-      <circle cx="50" cy="50" r="14" fill="url(#wheelCenterGlow)"></circle>
-    `;
-  }
-
-  function renderPrizeList() {
-    if (!els.prizeList || !els.prizeItemTemplate) return;
-    els.prizeList.innerHTML = "";
-
-    state.prizes.forEach((prize, index) => {
-      const node = els.prizeItemTemplate.content.firstElementChild.cloneNode(true);
-      node.style.setProperty("--prize-accent", `linear-gradient(180deg, ${prize.colorA}, ${prize.colorB})`);
-      node.dataset.index = String(index);
-
-      node.querySelector(".prize-name").textContent = prize.name;
-      node.querySelector(".prize-meta").textContent = prize.badge;
-      node.querySelector(".prize-price").textContent = prizePriceLabel(prize);
-      node.querySelector(".prize-chance").textContent = computeChance(prize.weight);
-
-      els.prizeList.appendChild(node);
-    });
-  }
-
-  function refreshPrizePrices() {
-    const items = els.prizeList?.querySelectorAll(".prize-item");
-    if (!items) return;
-    items.forEach((item, index) => {
-      const price = item.querySelector(".prize-price");
-      const chance = item.querySelector(".prize-chance");
-      if (price) price.textContent = prizePriceLabel(state.prizes[index]);
-      if (chance) chance.textContent = computeChance(state.prizes[index].weight);
-    });
-  }
-
-  function setActivePrize(index) {
-    state.activeIndex = index;
-
-    els.prizeList?.querySelectorAll(".prize-item").forEach((item, itemIndex) => {
-      item.classList.toggle("is-active", itemIndex === index);
-    });
-
-    els.wheelSvg?.querySelectorAll(".wheel-segment").forEach((seg, segIndex) => {
-      seg.classList.toggle("is-active", segIndex === index);
-    });
-  }
-
-  function weightedPick() {
-    let target = Math.random() * state.totalWeight;
-    for (let i = 0; i < state.prizes.length; i++) {
-      target -= state.prizes[i].weight;
-      if (target <= 0) return i;
-    }
-    return state.prizes.length - 1;
-  }
-
-  function computePointerIndex(rotation) {
-    const segmentAngle = 360 / state.prizes.length;
-    const normalized = normalizeAngle(360 - (rotation % 360));
-    return Math.floor((normalized + segmentAngle / 2) / segmentAngle) % state.prizes.length;
-  }
-
-  function positionBall(angleDeg, radiusFactor = 0.39, lift = 0, scaleY = 1) {
-    if (!els.wheelWrap || !els.ball || !els.ballShadow) return;
-
-    const size = els.wheelWrap.clientWidth;
-    const radius = size * radiusFactor;
-    const rad = (angleDeg - 90) * Math.PI / 180;
-    const x = Math.cos(rad) * radius;
-    const y = Math.sin(rad) * radius - lift;
-
-    els.ball.style.transform = `translate(-50%, -50%) translate3d(${x}px, ${y}px, 0) scale(1, ${scaleY})`;
-    els.ballShadow.style.transform = `translate(-50%, -50%) translate3d(${x}px, ${y + 14}px, 0) scale(${1 + lift * 0.012}, 1)`;
-    els.ballShadow.style.opacity = `${0.82 - clamp(lift / 26, 0, 0.45)}`;
-  }
-
-  function createAmbient() {
-    if (els.stars) {
-      const starCount = window.matchMedia("(max-width: 680px)").matches ? 34 : 80;
-      for (let i = 0; i < starCount; i++) {
-        const star = document.createElement("span");
-        star.className = "star";
-        star.style.left = `${Math.random() * 100}%`;
-        star.style.top = `${Math.random() * 100}%`;
-        star.style.animationDelay = `${Math.random() * 4}s`;
-        star.style.animationDuration = `${3 + Math.random() * 4}s`;
-        star.style.opacity = `${0.16 + Math.random() * 0.82}`;
-        els.stars.appendChild(star);
-      }
-    }
-
-    if (els.particles) {
-      const particleCount = window.matchMedia("(max-width: 680px)").matches ? 12 : 22;
-      for (let i = 0; i < particleCount; i++) {
-        const particle = document.createElement("span");
-        particle.className = "particle";
-        particle.style.left = `${Math.random() * 100}%`;
-        particle.style.bottom = `${-30 - Math.random() * 80}px`;
-        particle.style.animationDuration = `${7 + Math.random() * 8}s`;
-        particle.style.animationDelay = `${Math.random() * 6}s`;
-        els.particles.appendChild(particle);
-      }
-    }
-  }
-
-  function createLights() {
-    if (!els.lights) return;
-    const total = 28;
-    for (let i = 0; i < total; i++) {
-      const dot = document.createElement("span");
-      dot.className = "light-dot";
-      const angle = (i / total) * Math.PI * 2;
-      const radius = 47.2;
-      const x = 50 + Math.cos(angle) * radius;
-      const y = 50 + Math.sin(angle) * radius;
-      dot.style.left = `${x}%`;
-      dot.style.top = `${y}%`;
-      dot.style.animationDelay = `${(i * 0.08).toFixed(2)}s`;
-      els.lights.appendChild(dot);
-    }
-  }
-
-  function createConfettiBurst(count = 120) {
-    if (!els.confettiWrap) return;
-    const palette = ["#ffd85b", "#ff5d98", "#9964ff", "#22d194", "#ffffff", "#7ad8ff"];
-
-    for (let i = 0; i < count; i++) {
-      const piece = document.createElement("span");
-      piece.className = "confetti-piece";
-      piece.style.left = `${10 + Math.random() * 80}%`;
-      piece.style.top = `${-20 - Math.random() * 80}px`;
-      piece.style.background = palette[Math.floor(Math.random() * palette.length)];
-      piece.style.animationDuration = `${2.2 + Math.random() * 1.8}s`;
-      piece.style.setProperty("--dx", `${(Math.random() - 0.5) * 260}px`);
-      piece.style.setProperty("--rot", `${(Math.random() - 0.5) * 1100}deg`);
-      els.confettiWrap.appendChild(piece);
-      piece.addEventListener("animationend", () => piece.remove(), { once: true });
-    }
-  }
-
-  function persistNameLocally(name) {
-    try {
-      localStorage.setItem(storageKey, name);
-    } catch (_) {}
-  }
-
-  async function persistNameRemotely(name) {
-    const endpoint = safeText(config.endpoints.profile, "");
-    if (!endpoint) return;
-
-    try {
-      await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: config.userId,
-          username: config.username,
-          display_name: name,
-          full_name: name
-        })
-      });
-    } catch (_) {}
-  }
-
-  function applyPlayerName(name, persist = true) {
-    const clean = sanitizeName(name);
-    state.displayName = clean || "Jugador";
-    updateHeaderGreeting();
-    if (persist && clean) {
-      persistNameLocally(clean);
-      persistNameRemotely(clean);
-    }
-  }
-
-  function maybeOpenNameModal() {
-    if (state.firstOpenDone) return;
-    state.firstOpenDone = true;
-
-    let remembered = "";
-    try {
-      remembered = safeText(localStorage.getItem(storageKey), "");
-    } catch (_) {}
-
-    const initial = sanitizeName(remembered || config.displayName || config.fullName || "");
-    if (initial && initial.toLowerCase() !== "jugador") {
-      applyPlayerName(initial, false);
-      closeModal();
-      return;
-    }
-
-    applyPlayerName("Jugador", false);
-    setTimeout(openModal, 260);
-  }
-
-  async function submitPurchase(country) {
-    const endpoint = safeText(config.endpoints.purchase, "");
-    const payload = {
-      country,
-      user_id: config.userId,
-      username: config.username,
-      currency: state.currency
-    };
-
-    if (!endpoint) {
-      showToast("Compra marcada como pendiente");
-      return;
-    }
-
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        throw new Error("No se pudo registrar la compra");
-      }
-
-      showToast("Pago informado. Quedó pendiente de aprobación.");
-    } catch (_) {
-      showToast("No se pudo registrar ahora. Avisá manualmente al admin.");
-    }
-  }
-
-  function normalizeName(text) {
-    return safeText(text).toLowerCase();
-  }
-
-  function findPrizeIndexFromResponse(data) {
-    const directIndex = safeInt(data?.index, -1);
-    if (directIndex >= 0 && directIndex < state.prizes.length) return directIndex;
-
-    const prizeIndex = safeInt(data?.prize_index, -1);
-    if (prizeIndex >= 0 && prizeIndex < state.prizes.length) return prizeIndex;
-
-    const prizeName = safeText(
-      data?.prize?.name ??
-      data?.result?.name ??
-      data?.name ??
-      data?.prize_name ??
-      data?.result,
-      ""
-    );
-
-    if (prizeName) {
-      const found = state.prizes.findIndex((item) => normalizeName(item.name) === normalizeName(prizeName));
-      if (found >= 0) return found;
-    }
-
-    return -1;
-  }
-
-  async function requestSpin(mode) {
-    const endpoint = safeText(config.endpoints.spin, "");
-    const fallbackIndex = weightedPick();
-
-    if (!endpoint) {
-      return { index: fallbackIndex, data: null, local: true };
-    }
-
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode,
-          user_id: config.userId,
-          username: config.username,
-          currency: state.currency
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error("Fallo la tirada");
-      }
-
-      const data = await response.json();
-      const index = findPrizeIndexFromResponse(data);
-      return {
-        index: index >= 0 ? index : fallbackIndex,
-        data,
-        local: false
-      };
-    } catch (_) {
-      return { index: fallbackIndex, data: null, local: true };
-    }
-  }
-
-  function syncServerCounters(data, mode) {
-    const nextFichas = Number(data?.fichas ?? data?.profile?.fichas);
-    const nextDemo = Number(data?.demo_spins_left ?? data?.profile?.demo_spins_left);
-
-    if (Number.isFinite(nextFichas)) {
-      state.fichas = nextFichas;
-    } else if (mode === "ticket") {
-      state.fichas = Math.max(0, state.fichas - 1);
-    }
-
-    if (Number.isFinite(nextDemo)) {
-      state.demoSpinsLeft = nextDemo;
-    } else if (mode === "demo") {
-      state.demoSpinsLeft = Math.max(0, state.demoSpinsLeft - 1);
-    }
-  }
-
-  function updateWinner(index, mode, localFallback = false) {
-    const prize = state.prizes[index];
-    const named = state.displayName && state.displayName !== "Jugador";
-    const prefix = named ? `${state.displayName}, ` : "";
-
-    if (els.winnerMain) {
-      els.winnerMain.textContent = prize.name;
-    }
-
-    if (els.winnerSub) {
-      els.winnerSub.textContent = `${prefix}felicitaciones. Ganaste ${prize.name}.`;
-    }
-
-    if (els.winnerBadge) {
-      els.winnerBadge.textContent = `${prize.badge} · ${prizePriceLabel(prize)}`;
-    }
-
-    if (localFallback) {
-      setStatus("Resultado visual listo", mode === "demo" ? "Demo local" : "Modo local");
-    } else {
-      setStatus("Premio confirmado", mode === "demo" ? "Demo confirmada" : "Tirada real");
-    }
-
-    setActivePrize(index);
-    createConfettiBurst(window.matchMedia("(max-width: 680px)").matches ? 70 : 140);
-    showToast(`${prefix}ganaste ${prize.name}`);
-  }
-
-  async function animateSpinTo(targetIndex) {
-    const segmentAngle = 360 / state.prizes.length;
-    const finalAngle = 360 - (targetIndex * segmentAngle + segmentAngle / 2);
-    const extraTurns = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 4 : 7 + Math.floor(Math.random() * 2);
-    const currentNormalized = normalizeAngle(state.currentRotation);
-    const delta = ((finalAngle - currentNormalized) + 360) % 360;
-    const startRotation = state.currentRotation;
-    const endRotation = state.currentRotation + extraTurns * 360 + delta;
-    const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 1800 : 5200;
-
-    return new Promise((resolve) => {
-      const started = performance.now();
-      let previousIndex = -1;
-
-      const frame = (now) => {
-        const progress = clamp((now - started) / duration, 0, 1);
-        const eased = easeOutQuint(progress);
-
-        state.currentRotation = startRotation + (endRotation - startRotation) * eased;
-        els.wheelSvg.style.transform = `rotate(${state.currentRotation}deg)`;
-
-        const highlightIndex = computePointerIndex(state.currentRotation);
-        if (highlightIndex !== previousIndex) {
-          previousIndex = highlightIndex;
-          setActivePrize(highlightIndex);
+import json
+import logging
+import os
+import threading
+from pathlib import Path
+
+from flask import Flask, jsonify, make_response, render_template, request
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram.ext import (
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
+
+from utils import (
+    add_fichas_to_user,
+    approve_purchase_by_id,
+    build_webapp_url,
+    convert_price_from_uyu,
+    create_pending_purchase,
+    ensure_json_file,
+    ensure_user_profile,
+    format_prize_list,
+    get_country_link,
+    get_currency_from_language,
+    get_user_profile,
+    is_admin,
+    load_logs,
+    load_purchases,
+    load_users,
+    log_spin,
+    normalize_currency,
+    now_iso,
+    pick_weighted_prize,
+    sanitize_name,
+    save_users,
+    ticket_price_text,
+    update_user_profile,
+)
+
+# =========================================================
+# CONFIG
+# =========================================================
+
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+BOT_NAME = os.environ.get("BOT_NAME", "Ruleta Jeny").strip()
+DEFAULT_CURRENCY = os.environ.get("DEFAULT_CURRENCY", "UYU").strip().upper()
+WEBAPP_BASE_URL = os.environ.get(
+    "WEBAPP_BASE_URL",
+    "https://ruleta-jeny-2.onrender.com",
+).rstrip("/")
+WEB_PORT = int(os.environ.get("PORT", "8080"))
+UYU_TO_ARS = int(os.environ.get("UYU_TO_ARS", "25"))
+LOG_FILE = Path(os.environ.get("LOG_FILE", "spins_log.json"))
+USERS_FILE = Path(os.environ.get("USERS_FILE", "users_data.json"))
+PURCHASES_FILE = Path(os.environ.get("PURCHASES_FILE", "pending_purchases.json"))
+
+MP_LINK_AR = os.environ.get("MP_LINK_AR", "https://mpago.la/1vUBfHc").strip()
+MP_LINK_UY = os.environ.get("MP_LINK_UY", "https://mpago.la/1Zgex99").strip()
+
+RUN_TELEGRAM_BOT = os.environ.get("RUN_TELEGRAM_BOT", "false").strip().lower() == "true"
+
+ADMIN_IDS = {
+    int(x.strip())
+    for x in os.environ.get("ADMIN_IDS", "8445311801").split(",")
+    if x.strip().isdigit()
+}
+
+TICKET_PRICE_UYU = int(os.environ.get("TICKET_PRICE_UYU", "250"))
+DEMO_SPINS = int(os.environ.get("DEMO_SPINS", "1"))
+
+REAL_PRIZES = [
+    {"name": "💋 Pose favorita", "chance": 35.9, "uyu_price": 200, "weight": 359},
+    {"name": "📷 Pack 8 fotos", "chance": 24.0, "uyu_price": 350, "weight": 240},
+    {"name": "🎥 Video personalizado", "chance": 18.0, "uyu_price": 500, "weight": 180},
+    {"name": "🔥 3 videos x 3 min", "chance": 10.0, "uyu_price": 700, "weight": 100},
+    {"name": "🎬 Video personalizado 3 min", "chance": 6.0, "uyu_price": 750, "weight": 60},
+    {"name": "📸 10 fotos personalizadas", "chance": 4.0, "uyu_price": 1000, "weight": 40},
+    {"name": "💬 Sexting 1 hora", "chance": 2.0, "uyu_price": 950, "weight": 20},
+    {"name": "💎 Encuentro", "chance": 0.1, "uyu_price": 1500, "weight": 1},
+]
+
+VISIBLE_PRIZES = REAL_PRIZES[:]
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+_bot_lock = threading.Lock()
+_bot_started = False
+
+
+# =========================================================
+# TELEGRAM
+# =========================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
+    user = update.effective_user
+    currency = get_currency_from_language(user.language_code, DEFAULT_CURRENCY)
+    webapp_url = build_webapp_url(user, WEBAPP_BASE_URL, DEFAULT_CURRENCY)
+
+    ensure_user_profile(
+        user_id=user.id,
+        username=user.username,
+        full_name=user.full_name,
+        currency=currency,
+        display_name=user.first_name,
+        users_file=USERS_FILE,
+        default_demo_spins=DEMO_SPINS,
+        default_currency=DEFAULT_CURRENCY,
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    text=f"🎰 ABRIR RULETA • FICHA {ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY)}",
+                    web_app=WebAppInfo(url=webapp_url),
+                )
+            ],
+            [
+                InlineKeyboardButton("🎁 Ver premios", callback_data="view_prizes"),
+                InlineKeyboardButton("🎟 Mis fichas", callback_data="view_tokens"),
+            ],
+        ]
+    )
+
+    text = (
+        f"🎀 Bienvenido/a a {BOT_NAME}\n\n"
+        f"💱 Moneda detectada: {currency}\n"
+        f"🎟 Valor de la ficha: {ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY)}\n"
+        f"🆓 Demo gratis: {DEMO_SPINS} tirada\n\n"
+        "Abrí la ruleta premium, comprá fichas y girá por premios reales."
+    )
+
+    await update.message.reply_text(text, reply_markup=keyboard)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+
+    await update.message.reply_text(
+        "/start - abrir menú\n"
+        "/premios - ver premios\n"
+        "/myid - ver tu ID\n"
+        "/misfichas - ver fichas\n"
+        "/compraspendientes - ver compras pendientes (admin)\n"
+        "/aprobarcompra ID_COMPRA - acreditar compra pendiente (admin)\n"
+        "/sumarfichas USER_ID CANTIDAD - sumar fichas directo (admin)\n"
+        "/stats - estadísticas (admin)"
+    )
+
+
+async def premios_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
+    user = update.effective_user
+    currency = get_currency_from_language(user.language_code, DEFAULT_CURRENCY)
+    await update.message.reply_text(
+        f"🎁 Premios ({currency}):\n\n"
+        f"{format_prize_list(REAL_PRIZES, currency, UYU_TO_ARS, DEFAULT_CURRENCY)}\n\n"
+        f"🎟 Valor de la ficha: {ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY)}"
+    )
+
+
+async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+    await update.message.reply_text(f"Tu ID de Telegram es: {update.effective_user.id}")
+
+
+async def misfichas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
+    user = update.effective_user
+    key, profile = get_user_profile(
+        user.id,
+        user.username,
+        user.full_name,
+        USERS_FILE,
+        DEFAULT_CURRENCY,
+        DEMO_SPINS,
+    )
+    await update.message.reply_text(
+        f"🎟 Tus fichas: {profile.get('fichas', 0)}\n"
+        f"🆓 Demo disponible: {profile.get('demo_spins_left', 0)}\n"
+        f"👤 Nombre: {profile.get('display_name', 'Jugador')}\n"
+        f"🆔 Clave interna: {key}"
+    )
+
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
+    if not is_admin(update.effective_user.id, ADMIN_IDS):
+        await update.message.reply_text("No autorizado.")
+        return
+
+    logs = load_logs(LOG_FILE)
+    users = load_users(USERS_FILE)
+    purchases = load_purchases(PURCHASES_FILE)
+
+    total = len(logs)
+    pending = len([x for x in purchases if x.get("status") == "pending"])
+    approved = len([x for x in purchases if x.get("status") == "approved"])
+
+    counts: dict[str, int] = {}
+    for item in logs:
+        prize = str(item.get("prize", "Sin premio"))
+        counts[prize] = counts.get(prize, 0) + 1
+
+    lines = [
+        f"📊 Giros totales: {total}",
+        f"👥 Usuarios: {len(users)}",
+        f"🧾 Compras pendientes: {pending}",
+        f"✅ Compras aprobadas: {approved}",
+        "",
+        "Premios más salidos:",
+    ]
+    for prize, count in sorted(counts.items(), key=lambda x: x[1], reverse=True):
+        lines.append(f"{prize}: {count}")
+
+    await update.message.reply_text("\n".join(lines))
+
+
+async def compras_pendientes_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
+    if not is_admin(update.effective_user.id, ADMIN_IDS):
+        await update.message.reply_text("No autorizado.")
+        return
+
+    items = [x for x in load_purchases(PURCHASES_FILE) if x.get("status") == "pending"]
+    if not items:
+        await update.message.reply_text("No hay compras pendientes.")
+        return
+
+    lines = ["🧾 Compras pendientes:"]
+    for item in items[-20:]:
+        lines.append(
+            f"\nID: {item['purchase_id']}"
+            f"\nUsuario: {item.get('display_name', 'Jugador')}"
+            f"\nUser key: {item.get('user_key', '')}"
+            f"\nPaís: {item.get('country', '')}"
+            f"\nFichas: {item.get('qty', 1)}"
+            f"\nFecha: {item.get('created_at', '')}"
+        )
+
+    await update.message.reply_text("\n".join(lines))
+
+
+async def aprobar_compra_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
+    if not is_admin(update.effective_user.id, ADMIN_IDS):
+        await update.message.reply_text("No autorizado.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Uso: /aprobarcompra ID_COMPRA")
+        return
+
+    purchase_id = context.args[0].strip()
+    approved = approve_purchase_by_id(purchase_id, update.effective_user.id, PURCHASES_FILE, USERS_FILE)
+    if not approved:
+        await update.message.reply_text("Compra no encontrada o ya aprobada.")
+        return
+
+    users = load_users(USERS_FILE)
+    profile = users.get(approved["user_key"], {})
+    await update.message.reply_text(
+        f"✅ Compra aprobada\n"
+        f"ID: {purchase_id}\n"
+        f"Usuario: {approved.get('display_name', 'Jugador')}\n"
+        f"Fichas acreditadas: {approved.get('qty', 1)}\n"
+        f"Saldo actual: {profile.get('fichas', 0)}"
+    )
+
+
+async def sumar_fichas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
+    if not is_admin(update.effective_user.id, ADMIN_IDS):
+        await update.message.reply_text("No autorizado.")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Uso: /sumarfichas USER_ID CANTIDAD")
+        return
+
+    user_id = context.args[0].strip()
+    try:
+        amount = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("Cantidad inválida.")
+        return
+
+    users = load_users(USERS_FILE)
+    profile = users.get(str(user_id))
+    if not profile:
+        await update.message.reply_text("Usuario no encontrado en users_data.json")
+        return
+
+    profile["fichas"] = max(0, int(profile.get("fichas", 0)) + amount)
+    profile["updated_at"] = now_iso()
+    users[str(user_id)] = profile
+    save_users(users, USERS_FILE)
+
+    await update.message.reply_text(
+        f"✅ Fichas actualizadas\n"
+        f"Usuario: {profile.get('display_name', 'Jugador')}\n"
+        f"Saldo: {profile.get('fichas', 0)}"
+    )
+
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+
+    await query.answer()
+    user = query.from_user
+    currency = get_currency_from_language(getattr(user, "language_code", None), DEFAULT_CURRENCY)
+
+    if query.data == "view_prizes" and query.message:
+        await query.message.reply_text(
+            f"🎁 Premios ({currency}):\n\n"
+            f"{format_prize_list(REAL_PRIZES, currency, UYU_TO_ARS, DEFAULT_CURRENCY)}\n\n"
+            f"🎟 Valor de la ficha: {ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY)}"
+        )
+        return
+
+    if query.data == "view_tokens" and query.message:
+        _, profile = get_user_profile(
+            user.id,
+            user.username,
+            user.full_name,
+            USERS_FILE,
+            DEFAULT_CURRENCY,
+            DEMO_SPINS,
+        )
+        await query.message.reply_text(
+            f"🎟 Tus fichas: {profile.get('fichas', 0)}\n"
+            f"🆓 Demo disponible: {profile.get('demo_spins_left', 0)}"
+        )
+
+
+def build_bot_application():
+    if not TOKEN:
+        raise RuntimeError("Falta TELEGRAM_BOT_TOKEN en variables de entorno.")
+
+    bot_app = ApplicationBuilder().token(TOKEN).build()
+    bot_app.add_handler(CommandHandler("start", start))
+    bot_app.add_handler(CommandHandler("help", help_command))
+    bot_app.add_handler(CommandHandler("premios", premios_command))
+    bot_app.add_handler(CommandHandler("myid", myid_command))
+    bot_app.add_handler(CommandHandler("misfichas", misfichas_command))
+    bot_app.add_handler(CommandHandler("stats", stats_command))
+    bot_app.add_handler(CommandHandler("compraspendientes", compras_pendientes_command))
+    bot_app.add_handler(CommandHandler("aprobarcompra", aprobar_compra_command))
+    bot_app.add_handler(CommandHandler("sumarfichas", sumar_fichas_command))
+    bot_app.add_handler(CallbackQueryHandler(button_handler))
+    return bot_app
+
+
+def run_bot_polling() -> None:
+    try:
+        bot_app = build_bot_application()
+        logger.info("%s iniciado correctamente.", BOT_NAME)
+        bot_app.run_polling(drop_pending_updates=True)
+    except Exception:
+        logger.exception("Error al iniciar el bot de Telegram.")
+
+
+def start_bot_background_once() -> None:
+    global _bot_started
+
+    if not RUN_TELEGRAM_BOT:
+        return
+    if not TOKEN:
+        logger.warning("RUN_TELEGRAM_BOT=true pero falta TELEGRAM_BOT_TOKEN.")
+        return
+
+    with _bot_lock:
+        if _bot_started:
+            return
+        _bot_started = True
+        thread = threading.Thread(target=run_bot_polling, daemon=True)
+        thread.start()
+        logger.info("Bot de Telegram lanzado en background.")
+
+
+# =========================================================
+# RUTAS
+# =========================================================
+
+@app.after_request
+def add_no_cache_headers(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.get("/")
+def home():
+    return wheel_page()
+
+
+@app.get("/health")
+def health():
+    return jsonify(
+        {
+            "ok": True,
+            "service": BOT_NAME,
+            "bot_running": RUN_TELEGRAM_BOT,
         }
+    )
 
-        const freeAngle = normalizeAngle((1 - progress) * 1300);
-        const settleMix = progress > 0.82 ? (progress - 0.82) / 0.18 : 0;
-        const ballAngle = progress > 0.82 ? freeAngle * (1 - settleMix) : freeAngle;
-        const lift = Math.sin(progress * Math.PI) * 10 + Math.sin(now * 0.026) * (1 - progress) * 8;
-        const scaleY = 1 - Math.abs(Math.sin(progress * Math.PI)) * 0.06;
-        positionBall(ballAngle, 0.39 + (1 - progress) * 0.02, lift, scaleY);
 
-        if (progress < 1) {
-          requestAnimationFrame(frame);
-          return;
+@app.get("/wheel")
+def wheel_page():
+    user_id = request.args.get("user_id", "")
+    username = request.args.get("username", "")
+    full_name = request.args.get("full_name", "")
+    currency = normalize_currency(request.args.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
+
+    profile = ensure_user_profile(
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+        currency=currency,
+        display_name=full_name or username or "Jugador",
+        users_file=USERS_FILE,
+        default_demo_spins=DEMO_SPINS,
+        default_currency=DEFAULT_CURRENCY,
+    )
+
+    return make_response(
+        render_template(
+            "wheel.html",
+            bot_name=BOT_NAME,
+            prizes=json.dumps(VISIBLE_PRIZES, ensure_ascii=False),
+            currency=currency,
+            user_id=user_id,
+            username=username,
+            full_name=full_name,
+            display_name=profile.get("display_name", "Jugador"),
+            fichas=int(profile.get("fichas", 0)),
+            demo_spins_left=int(profile.get("demo_spins_left", 0)),
+            uyu_to_ars=UYU_TO_ARS,
+            ticket_price_uyu=TICKET_PRICE_UYU,
+            mp_link_ar=MP_LINK_AR,
+            mp_link_uy=MP_LINK_UY,
+        )
+    )
+
+
+@app.post("/api/profile")
+def api_profile():
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id")
+    username = data.get("username", "")
+    full_name = data.get("full_name", "")
+    currency = normalize_currency(data.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
+    display_name = sanitize_name(data.get("display_name") or full_name or username or "Jugador")
+
+    key, profile = get_user_profile(user_id, username, full_name, USERS_FILE, DEFAULT_CURRENCY, DEMO_SPINS)
+    profile["display_name"] = display_name
+    profile["currency"] = currency
+    update_user_profile(key, profile, USERS_FILE)
+
+    return jsonify({"ok": True, "profile": profile})
+
+
+@app.post("/api/profile-sync")
+def api_profile_sync():
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id")
+    username = data.get("username", "")
+    full_name = data.get("full_name", "")
+    currency = normalize_currency(data.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
+    display_name = sanitize_name(data.get("display_name") or full_name or username or "Jugador")
+
+    key, profile = get_user_profile(user_id, username, full_name, USERS_FILE, DEFAULT_CURRENCY, DEMO_SPINS)
+    profile["currency"] = currency
+    profile["display_name"] = display_name
+    update_user_profile(key, profile, USERS_FILE)
+
+    return jsonify({"ok": True, "profile": profile})
+
+
+@app.post("/api/create-pending-purchase")
+def api_create_pending_purchase():
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id")
+    username = data.get("username", "")
+    full_name = data.get("full_name", "")
+    display_name = sanitize_name(data.get("display_name") or full_name or username or "Jugador")
+    currency = normalize_currency(data.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
+    country = (data.get("country") or "UY").upper().strip()
+    qty = max(1, int(data.get("qty", 1)))
+
+    ensure_user_profile(
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+        currency=currency,
+        display_name=display_name,
+        users_file=USERS_FILE,
+        default_demo_spins=DEMO_SPINS,
+        default_currency=DEFAULT_CURRENCY,
+    )
+    item = create_pending_purchase(
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+        display_name=display_name,
+        country=country,
+        currency=currency,
+        qty=qty,
+        purchases_file=PURCHASES_FILE,
+        default_currency=DEFAULT_CURRENCY,
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+            "purchase_id": item["purchase_id"],
+            "payment_url": get_country_link(country, MP_LINK_AR, MP_LINK_UY),
+            "message": "Compra registrada como pendiente. Luego aprobala desde admin o bot.",
         }
+    )
 
-        state.currentRotation = endRotation;
-        els.wheelSvg.style.transform = `rotate(${state.currentRotation}deg)`;
-        positionBall(0, 0.39, 0, 1);
-        setActivePrize(targetIndex);
-        resolve();
-      };
 
-      requestAnimationFrame(frame);
-    });
-  }
+@app.post("/api/spin")
+def api_spin():
+    data = request.get_json(silent=True) or {}
 
-  async function runSpin(mode) {
-    if (state.spinning) return;
+    user_id = data.get("user_id")
+    username = data.get("username", "")
+    full_name = data.get("full_name", "")
+    display_name = sanitize_name(data.get("display_name") or full_name or username or "Jugador")
+    currency = normalize_currency(data.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
+    mode = (data.get("mode") or "paid").strip().lower()
 
-    if (mode === "ticket" && state.fichas <= 0) {
-      showToast("No tenés fichas. Comprá una para girar.");
-      document.querySelector(".purchase-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
+    key, profile = get_user_profile(user_id, username, full_name, USERS_FILE, DEFAULT_CURRENCY, DEMO_SPINS)
+    profile["display_name"] = display_name
+    profile["currency"] = currency
 
-    if (mode === "demo" && state.demoSpinsLeft <= 0 && config.previewMode !== "demo") {
-      showToast("No te quedan demos por ahora.");
-      return;
-    }
+    fichas = int(profile.get("fichas", 0))
+    demo_left = int(profile.get("demo_spins_left", 0))
 
-    state.spinning = true;
-    els.spinBtn.disabled = true;
-    els.demoBtn.disabled = true;
-    setStatus("Girando...", mode === "demo" ? "Demo en curso" : "Tirada en curso");
+    if mode == "demo":
+        if demo_left <= 0:
+            return jsonify({"ok": False, "error": "Ya usaste la tirada demo."}), 400
+        profile["demo_spins_left"] = demo_left - 1
+    else:
+        if fichas <= 0:
+            return jsonify({"ok": False, "error": "No tenés fichas. Comprá una para seguir jugando."}), 400
+        profile["fichas"] = fichas - 1
 
-    const result = await requestSpin(mode);
-    await animateSpinTo(result.index);
+    prize = pick_weighted_prize(REAL_PRIZES)
+    profile["wins"] = int(profile.get("wins", 0)) + 1
+    profile["last_prize"] = prize["name"]
+    update_user_profile(key, profile, USERS_FILE)
 
-    syncServerCounters(result.data, mode);
-    updateCounters();
-    refreshPrizePrices();
-    updateWinner(result.index, mode, result.local);
+    log_spin(
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+        display_name=display_name,
+        prize_name=prize["name"],
+        currency=currency,
+        spin_mode=mode,
+        log_file=LOG_FILE,
+    )
 
-    state.spinning = false;
-    els.spinBtn.disabled = false;
-    els.demoBtn.disabled = false;
-  }
-
-  function openPayment(country) {
-    const link = country === "AR" ? config.paymentLinks.AR : config.paymentLinks.UY;
-    if (!link) {
-      showToast("No hay link de pago configurado");
-      return;
-    }
-    window.open(link, "_blank", "noopener,noreferrer");
-  }
-
-  function bindEvents() {
-    els.spinBtn?.addEventListener("click", () => runSpin("ticket"));
-    els.demoBtn?.addEventListener("click", () => runSpin("demo"));
-
-    els.buyBtn?.addEventListener("click", () => {
-      document.querySelector(".purchase-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-
-    els.btnUyu?.addEventListener("click", () => {
-      state.currency = "UYU";
-      updateCurrencyButtons();
-      updateCounters();
-      refreshPrizePrices();
-      showToast("Mostrando valores en UYU");
-    });
-
-    els.btnArs?.addEventListener("click", () => {
-      state.currency = "ARS";
-      updateCurrencyButtons();
-      updateCounters();
-      refreshPrizePrices();
-      showToast("Mostrando valores en ARS");
-    });
-
-    els.payArBtn?.addEventListener("click", () => openPayment("AR"));
-    els.payUyBtn?.addEventListener("click", () => openPayment("UY"));
-
-    els.confirmArPaidBtn?.addEventListener("click", () => submitPurchase("AR"));
-    els.confirmUyPaidBtn?.addEventListener("click", () => submitPurchase("UY"));
-
-    els.saveNameBtn?.addEventListener("click", () => {
-      const name = sanitizeName(els.playerNameInput?.value ?? "");
-      if (name.length < 2) {
-        showToast("Escribí un nombre válido");
-        els.playerNameInput?.focus();
-        return;
-      }
-      applyPlayerName(name, true);
-      closeModal();
-      showToast(`Nombre guardado: ${name}`);
-    });
-
-    els.skipNameBtn?.addEventListener("click", () => {
-      closeModal();
-      showToast("Podés guardar tu nombre después recargando la página");
-    });
-
-    els.playerNameInput?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        els.saveNameBtn?.click();
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeModal();
-      }
-    });
-
-    window.addEventListener("keydown", (event) => {
-      if (event.code === "Space" && !state.spinning) {
-        const tag = document.activeElement?.tagName;
-        if (!["INPUT", "TEXTAREA", "BUTTON"].includes(tag || "")) {
-          event.preventDefault();
-          runSpin("ticket");
+    return jsonify(
+        {
+            "ok": True,
+            "prize": {
+                "name": prize["name"],
+                "label": convert_price_from_uyu(int(prize["uyu_price"]), currency, UYU_TO_ARS, DEFAULT_CURRENCY),
+                "chance": prize["chance"],
+            },
+            "ticket": ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY),
+            "profile": profile,
         }
-      }
-    });
+    )
 
-    window.addEventListener("resize", () => {
-      if (!state.spinning) {
-        positionBall(0, 0.39, 0, 1);
-      }
-    });
-  }
 
-  function initState() {
-    state.prizes = config.prizes.map((prize, index) => normalizePrize(prize, index, config.uyuToArs));
-    state.totalWeight = state.prizes.reduce((sum, item) => sum + item.weight, 0);
-    state.displayName = sanitizeName(config.displayName || config.fullName || "");
-  }
+# =========================================================
+# MAIN
+# =========================================================
 
-  function init() {
-    initState();
-    createAmbient();
-    createLights();
-    renderWheel();
-    renderPrizeList();
-    updateCurrencyButtons();
-    updateCounters();
-    applyPlayerName(state.displayName || "Jugador", false);
-    setStatus("Lista para girar", "Esperando");
-    positionBall(0, 0.39, 0, 1);
-    bindEvents();
-    maybeOpenNameModal();
-  }
+def main() -> None:
+    ensure_json_file(LOG_FILE, [])
+    ensure_json_file(USERS_FILE, {})
+    ensure_json_file(PURCHASES_FILE, [])
 
-  document.addEventListener("DOMContentLoaded", init);
-})();
+    if RUN_TELEGRAM_BOT:
+        start_bot_background_once()
+
+    logger.info("%s web iniciada en http://127.0.0.1:%s", BOT_NAME, WEB_PORT)
+    app.run(host="0.0.0.0", port=WEB_PORT, debug=False)
+
+
+if __name__ == "__main__":
+    main()

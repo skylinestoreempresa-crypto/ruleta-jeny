@@ -1,7 +1,8 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "2.0.0";
+  const APP_VERSION = "2.3.0";
+
   const DEFAULTS = Object.freeze({
     currency: "UYU",
     displayName: "Jugador",
@@ -9,17 +10,21 @@
     ticketPriceUyu: 250,
     uyuToArs: 25,
     spinDurationMs: 6200,
-    reducedSpinDurationMs: 1400,
+    reducedSpinDurationMs: 1500,
     requestTimeoutMs: 12000,
     toastDurationMs: 2400,
-    errorToastDurationMs: 3200,
+    errorToastDurationMs: 3400,
     wheelRadius: 47.8,
     wheelCenter: 50,
     idleBallRadius: 42,
     finalBallRadius: 38.4,
     touchBallRadius: 41.4,
     confettiCount: 180,
-    reducedConfettiCount: 36,
+    reducedConfettiCount: 40,
+    maxDisplayNameLength: 40,
+    spinMinTurns: 8,
+    spinMaxExtraTurns: 4,
+    reducedSpinTurns: 3,
   });
 
   const API_PATHS = Object.freeze({
@@ -61,7 +66,7 @@
     return normalized === "ARS" ? "ARS" : "UYU";
   };
 
-  const normalizeDisplayName = (value) => normalizeText(value, DEFAULTS.displayName).slice(0, 40);
+  const normalizeDisplayName = (value) => normalizeText(value, DEFAULTS.displayName).slice(0, DEFAULTS.maxDisplayNameLength);
 
   const safeJsonParse = (value, fallback = null) => {
     try {
@@ -173,7 +178,7 @@
 
   const config = freezeDeep({
     version: APP_VERSION,
-    prizes: normalizedPrizes,
+    prizes: normalizedPrizes.length ? normalizedPrizes : fallbackPrizes.map(normalizePrize),
     currency: normalizeCurrency(rawConfig.currency),
     user_id: normalizeText(rawConfig.user_id),
     username: normalizeText(rawConfig.username),
@@ -236,7 +241,7 @@
     return;
   }
 
-  const storageKeyBase = `ruleta:${config.user_id || config.username || "guest"}:v2`;
+  const storageKeyBase = `ruleta:${config.user_id || config.username || "guest"}:v23`;
   const media = {
     reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)"),
     contrast: window.matchMedia("(prefers-contrast: more)"),
@@ -259,11 +264,13 @@
     wheelAnimation: null,
     pointerAnimation: null,
     modalFocusedBeforeOpen: null,
+    ballAngle: 0,
     audio: {
       ctx: null,
       compressor: null,
       gain: null,
       ready: false,
+      enabled: true,
     },
     user: {
       user_id: config.user_id,
@@ -309,7 +316,9 @@
 
   const chanceLabel = (value) => {
     const safe = clampFloat(value, 0, 0, 100);
-    return Number.isInteger(safe) ? `${safe}%` : `${safe.toFixed(2).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")}%`;
+    return Number.isInteger(safe)
+      ? `${safe}%`
+      : `${safe.toFixed(2).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")}%`;
   };
 
   const shortLabel = (value, maxLen = 18) => {
@@ -347,7 +356,8 @@
     }, type === "error" ? DEFAULTS.errorToastDurationMs : DEFAULTS.toastDurationMs);
   };
 
-  const currentPlayerName = () => normalizeDisplayName(state.user.display_name || state.user.full_name || state.user.username || DEFAULTS.displayName);
+  const currentPlayerName = () =>
+    normalizeDisplayName(state.user.display_name || state.user.full_name || state.user.username || DEFAULTS.displayName);
 
   const setBusy = (el, busy, busyLabel = "Procesando...") => {
     if (!el) return;
@@ -360,6 +370,7 @@
     }
 
     el.removeAttribute("aria-busy");
+    el.disabled = false;
     if (el.dataset.originalLabel) {
       el.textContent = el.dataset.originalLabel;
     }
@@ -410,7 +421,10 @@
     const player = escapeHtml(currentPlayerName());
     const prizeName = escapeHtml(result?.name || "Premio");
     const prizeLabel = escapeHtml(result?.label || "");
-    const chance = result?.chance != null ? `<div class="winner-badge">Probabilidad ${escapeHtml(chanceLabel(result.chance))}</div>` : `<div class="winner-badge">Resultado confirmado</div>`;
+    const chance =
+      result?.chance != null
+        ? `<div class="winner-badge">Probabilidad ${escapeHtml(chanceLabel(result.chance))}</div>`
+        : `<div class="winner-badge">Resultado confirmado</div>`;
 
     els.winnerBox.innerHTML = `
       <div class="info-label">Premio ganado</div>
@@ -626,6 +640,7 @@
 
   const setBallPosition = (angleDeg, radiusPercent = getIdleBallRadius()) => {
     if (!els.ball) return;
+    state.ballAngle = angleDeg;
     const radians = ((angleDeg - 90) * Math.PI) / 180;
     const x = Math.cos(radians) * radiusPercent;
     const y = Math.sin(radians) * radiusPercent;
@@ -673,16 +688,15 @@
     state.wheelAnimation = null;
   };
 
-  const animateWheelRotation = (targetRotation, duration = getSpinDuration()) => {
+  const animateWheelRotation = (fromRotation, targetRotation, duration = getSpinDuration()) => {
     if (!els.wheelSvg) return;
     stopWheelAnimation();
 
+    els.wheelSvg.style.transform = `rotate(${fromRotation}deg)`;
+
     if (typeof els.wheelSvg.animate === "function") {
       state.wheelAnimation = els.wheelSvg.animate(
-        [
-          { transform: `rotate(${state.currentRotation}deg)` },
-          { transform: `rotate(${targetRotation}deg)` },
-        ],
+        [{ transform: `rotate(${fromRotation}deg)` }, { transform: `rotate(${targetRotation}deg)` }],
         {
           duration,
           easing: isReducedMotion() ? "cubic-bezier(.22,.61,.36,1)" : "cubic-bezier(.08,.85,.15,1)",
@@ -704,7 +718,7 @@
     });
     window.setTimeout(() => {
       els.wheelSvg.style.transition = "";
-    }, duration + 40);
+    }, duration + 60);
   };
 
   const stopPointerKick = () => {
@@ -761,6 +775,7 @@
   };
 
   const ensureAudioReady = async () => {
+    if (!state.audio.enabled) return;
     initAudio();
     if (!state.audio.ctx) return;
     if (state.audio.ctx.state === "suspended") {
@@ -772,7 +787,7 @@
   };
 
   const playTone = (type, frequency, duration, gainValue, when = 0, glideTo = null) => {
-    if (!state.audio.ctx || !state.audio.compressor || !state.audio.ready) return;
+    if (!state.audio.ctx || !state.audio.compressor || !state.audio.ready || !state.audio.enabled) return;
 
     const now = state.audio.ctx.currentTime + when;
     const osc = state.audio.ctx.createOscillator();
@@ -781,7 +796,7 @@
     osc.type = type;
     osc.frequency.setValueAtTime(frequency, now);
     if (glideTo) {
-      osc.frequency.exponentialRampToValueAtTime(glideTo, now + duration);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(20, glideTo), now + duration);
     }
 
     gain.gain.setValueAtTime(0.0001, now);
@@ -1164,7 +1179,9 @@
   const calculateTargetRotation = (index) => {
     const segmentAngle = 360 / config.prizes.length;
     const segmentCenter = index * segmentAngle + segmentAngle / 2;
-    const fullSpins = isReducedMotion() ? 3 : 8 + Math.floor(Math.random() * 4);
+    const fullSpins = isReducedMotion()
+      ? DEFAULTS.reducedSpinTurns
+      : DEFAULTS.spinMinTurns + Math.floor(Math.random() * DEFAULTS.spinMaxExtraTurns);
     const fineOffset = isReducedMotion() ? 0 : Math.random() * 7 - 3.5;
     const rotation = state.currentRotation + fullSpins * 360 + (360 - segmentCenter) + fineOffset;
     return { segmentCenter, rotation };
@@ -1186,6 +1203,7 @@
     }
 
     clearRuntimeTimers();
+    const previousRotation = state.currentRotation;
     beginSpinUi(mode);
 
     try {
@@ -1200,7 +1218,10 @@
       const normalized = normalizeSpinShape(data, mode);
       applyProfile(normalized.profile);
 
-      const prizeIndex = config.prizes.findIndex((item) => item.id === normalized.prize.id || normalizeLoose(item.name) === normalizeLoose(normalized.prize.name));
+      const prizeIndex = config.prizes.findIndex(
+        (item) => item.id === normalized.prize.id || normalizeLoose(item.name) === normalizeLoose(normalized.prize.name)
+      );
+
       if (prizeIndex < 0) {
         throw new Error("Premio no encontrado en la ruleta.");
       }
@@ -1209,7 +1230,7 @@
       const spinDuration = getSpinDuration();
       const ballFinalAngle = 360 - target.segmentCenter + 360;
 
-      animateWheelRotation(target.rotation, spinDuration);
+      animateWheelRotation(previousRotation, target.rotation, spinDuration);
       animateBallSpin(ballFinalAngle, spinDuration - 80);
       triggerPointerKick(spinDuration - 1000);
       startTicking(spinDuration - 450);
@@ -1231,6 +1252,11 @@
         highlightPrizeItem(normalized.prize.id);
         playWinSound();
         fireConfetti();
+
+        if (navigator.vibrate) {
+          navigator.vibrate([60, 30, 90]);
+        }
+
         toast(`¡Ganaste: ${normalized.prize.name}!`, "success");
         setStatus("Premio entregado", mode === "demo" ? "Demo completada" : "Animación completada");
         announce(`Premio ganado: ${normalized.prize.name} por ${normalized.prize.label}`);
@@ -1238,6 +1264,9 @@
       }, spinDuration);
     } catch (error) {
       clearRuntimeTimers();
+      state.currentRotation = previousRotation;
+      els.wheelSvg.style.transform = `rotate(${previousRotation}deg)`;
+      setBallPosition(0, getIdleBallRadius());
       toast(error?.message || "Error al girar la ruleta", "error");
       setStatus("Error", "Reintentar");
       announce("Hubo un error al girar la ruleta");
@@ -1320,14 +1349,21 @@
       renderStars();
       renderParticles();
       renderLights();
-      setBallPosition(0, getIdleBallRadius());
+      setBallPosition(state.ballAngle || 0, getIdleBallRadius());
     }),
     100
   );
 
   const onVisibilityChange = () => {
-    if (!doc.hidden) return;
+    if (!doc.hidden) {
+      if (!state.spinning) {
+        setBallPosition(state.ballAngle || 0, getIdleBallRadius());
+      }
+      return;
+    }
+
     stopTicking();
+
     if (state.audio.ctx?.state === "running") {
       state.audio.ctx.suspend().catch(() => {});
     }
@@ -1438,14 +1474,17 @@
     bindEvent(window, "orientationchange", onResize, { passive: true });
     bindEvent(doc, "keydown", trapModalFocus);
     bindEvent(doc, "visibilitychange", onVisibilityChange);
+
     bindEvent(window, "online", () => {
       toast("Conexión restaurada", "success");
       announce("Conexión restaurada");
     });
+
     bindEvent(window, "offline", () => {
       toast("Sin conexión a internet", "error");
       announce("Sin conexión a internet");
     });
+
     bindEvent(window, "pointerdown", onFirstInteraction, { passive: true });
     bindEvent(window, "keydown", onFirstInteraction, { passive: true });
     bindEvent(window, "touchstart", onFirstInteraction, { passive: true });
@@ -1455,7 +1494,7 @@
       renderParticles();
       renderLights();
       updateActionButtons();
-      setBallPosition(0, getIdleBallRadius());
+      setBallPosition(state.ballAngle || 0, getIdleBallRadius());
     });
 
     bindMediaListener(media.contrast, () => {

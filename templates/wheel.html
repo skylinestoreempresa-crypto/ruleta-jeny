@@ -1,624 +1,2290 @@
-import json
-import logging
-import os
-import threading
-from pathlib import Path
-
-from flask import Flask, jsonify, make_response, render_template, request
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
-from telegram.ext import (
-    ApplicationBuilder,
-    CallbackQueryHandler,
-    CommandHandler,
-    ContextTypes,
-)
-
-from utils import (
-    add_fichas_to_user,
-    approve_purchase_by_id,
-    build_webapp_url,
-    convert_price_from_uyu,
-    create_pending_purchase,
-    ensure_json_file,
-    ensure_user_profile,
-    format_prize_list,
-    get_country_link,
-    get_currency_from_language,
-    get_user_profile,
-    is_admin,
-    load_logs,
-    load_purchases,
-    load_users,
-    log_spin,
-    normalize_currency,
-    now_iso,
-    pick_weighted_prize,
-    sanitize_name,
-    save_users,
-    ticket_price_text,
-    update_user_profile,
-)
-
-# =========================================================
-# CONFIG
-# =========================================================
-
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-BOT_NAME = os.environ.get("BOT_NAME", "Ruleta Jeny").strip()
-DEFAULT_CURRENCY = os.environ.get("DEFAULT_CURRENCY", "UYU").strip().upper()
-WEBAPP_BASE_URL = os.environ.get(
-    "WEBAPP_BASE_URL",
-    "https://ruleta-jeny-2.onrender.com",
-).rstrip("/")
-WEB_PORT = int(os.environ.get("PORT", "8080"))
-UYU_TO_ARS = int(os.environ.get("UYU_TO_ARS", "25"))
-LOG_FILE = Path(os.environ.get("LOG_FILE", "spins_log.json"))
-USERS_FILE = Path(os.environ.get("USERS_FILE", "users_data.json"))
-PURCHASES_FILE = Path(os.environ.get("PURCHASES_FILE", "pending_purchases.json"))
-
-MP_LINK_AR = os.environ.get("MP_LINK_AR", "https://mpago.la/1vUBfHc").strip()
-MP_LINK_UY = os.environ.get("MP_LINK_UY", "https://mpago.la/1Zgex99").strip()
-
-RUN_TELEGRAM_BOT = os.environ.get("RUN_TELEGRAM_BOT", "false").strip().lower() == "true"
-
-ADMIN_IDS = {
-    int(x.strip())
-    for x in os.environ.get("ADMIN_IDS", "8445311801").split(",")
-    if x.strip().isdigit()
-}
-
-TICKET_PRICE_UYU = int(os.environ.get("TICKET_PRICE_UYU", "250"))
-DEMO_SPINS = int(os.environ.get("DEMO_SPINS", "1"))
-
-REAL_PRIZES = [
-    {"name": "💋 Pose favorita", "chance": 35.9, "uyu_price": 200, "weight": 359},
-    {"name": "📷 Pack 8 fotos", "chance": 24.0, "uyu_price": 350, "weight": 240},
-    {"name": "🎥 Video personalizado", "chance": 18.0, "uyu_price": 500, "weight": 180},
-    {"name": "🔥 3 videos x 3 min", "chance": 10.0, "uyu_price": 700, "weight": 100},
-    {"name": "🎬 Video personalizado 3 min", "chance": 6.0, "uyu_price": 750, "weight": 60},
-    {"name": "📸 10 fotos personalizadas", "chance": 4.0, "uyu_price": 1000, "weight": 40},
-    {"name": "💬 Sexting 1 hora", "chance": 2.0, "uyu_price": 950, "weight": 20},
-    {"name": "💎 Encuentro", "chance": 0.1, "uyu_price": 1500, "weight": 1},
-]
-
-VISIBLE_PRIZES = REAL_PRIZES[:]
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
-logger = logging.getLogger(__name__)
-
-app = Flask(__name__)
-_bot_lock = threading.Lock()
-_bot_started = False
-
-
-# =========================================================
-# TELEGRAM
-# =========================================================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message:
-        return
-
-    user = update.effective_user
-    currency = get_currency_from_language(user.language_code, DEFAULT_CURRENCY)
-    webapp_url = build_webapp_url(user, WEBAPP_BASE_URL, DEFAULT_CURRENCY)
-
-    ensure_user_profile(
-        user_id=user.id,
-        username=user.username,
-        full_name=user.full_name,
-        currency=currency,
-        display_name=user.first_name,
-        users_file=USERS_FILE,
-        default_demo_spins=DEMO_SPINS,
-        default_currency=DEFAULT_CURRENCY,
-    )
-
-    keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    text=f"🎰 ABRIR RULETA • FICHA {ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY)}",
-                    web_app=WebAppInfo(url=webapp_url),
-                )
-            ],
-            [
-                InlineKeyboardButton("🎁 Ver premios", callback_data="view_prizes"),
-                InlineKeyboardButton("🎟 Mis fichas", callback_data="view_tokens"),
-            ],
-        ]
-    )
-
-    text = (
-        f"🎀 Bienvenido/a a {BOT_NAME}\n\n"
-        f"💱 Moneda detectada: {currency}\n"
-        f"🎟 Valor de la ficha: {ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY)}\n"
-        f"🆓 Demo gratis: {DEMO_SPINS} tirada\n\n"
-        "Abrí la ruleta premium, comprá fichas y girá por premios reales."
-    )
-
-    await update.message.reply_text(text, reply_markup=keyboard)
-
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
-
-    await update.message.reply_text(
-        "/start - abrir menú\n"
-        "/premios - ver premios\n"
-        "/myid - ver tu ID\n"
-        "/misfichas - ver fichas\n"
-        "/compraspendientes - ver compras pendientes (admin)\n"
-        "/aprobarcompra ID_COMPRA - acreditar compra pendiente (admin)\n"
-        "/sumarfichas USER_ID CANTIDAD - sumar fichas directo (admin)\n"
-        "/stats - estadísticas (admin)"
-    )
-
-
-async def premios_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message:
-        return
-
-    user = update.effective_user
-    currency = get_currency_from_language(user.language_code, DEFAULT_CURRENCY)
-    await update.message.reply_text(
-        f"🎁 Premios ({currency}):\n\n"
-        f"{format_prize_list(REAL_PRIZES, currency, UYU_TO_ARS, DEFAULT_CURRENCY)}\n\n"
-        f"🎟 Valor de la ficha: {ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY)}"
-    )
-
-
-async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message:
-        return
-    await update.message.reply_text(f"Tu ID de Telegram es: {update.effective_user.id}")
-
-
-async def misfichas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message:
-        return
-
-    user = update.effective_user
-    key, profile = get_user_profile(
-        user.id,
-        user.username,
-        user.full_name,
-        USERS_FILE,
-        DEFAULT_CURRENCY,
-        DEMO_SPINS,
-    )
-    await update.message.reply_text(
-        f"🎟 Tus fichas: {profile.get('fichas', 0)}\n"
-        f"🆓 Demo disponible: {profile.get('demo_spins_left', 0)}\n"
-        f"👤 Nombre: {profile.get('display_name', 'Jugador')}\n"
-        f"🆔 Clave interna: {key}"
-    )
-
-
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message:
-        return
-
-    if not is_admin(update.effective_user.id, ADMIN_IDS):
-        await update.message.reply_text("No autorizado.")
-        return
-
-    logs = load_logs(LOG_FILE)
-    users = load_users(USERS_FILE)
-    purchases = load_purchases(PURCHASES_FILE)
-
-    total = len(logs)
-    pending = len([x for x in purchases if x.get("status") == "pending"])
-    approved = len([x for x in purchases if x.get("status") == "approved"])
-
-    counts: dict[str, int] = {}
-    for item in logs:
-        prize = str(item.get("prize", "Sin premio"))
-        counts[prize] = counts.get(prize, 0) + 1
-
-    lines = [
-        f"📊 Giros totales: {total}",
-        f"👥 Usuarios: {len(users)}",
-        f"🧾 Compras pendientes: {pending}",
-        f"✅ Compras aprobadas: {approved}",
-        "",
-        "Premios más salidos:",
-    ]
-    for prize, count in sorted(counts.items(), key=lambda x: x[1], reverse=True):
-        lines.append(f"{prize}: {count}")
-
-    await update.message.reply_text("\n".join(lines))
-
-
-async def compras_pendientes_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message:
-        return
-
-    if not is_admin(update.effective_user.id, ADMIN_IDS):
-        await update.message.reply_text("No autorizado.")
-        return
-
-    items = [x for x in load_purchases(PURCHASES_FILE) if x.get("status") == "pending"]
-    if not items:
-        await update.message.reply_text("No hay compras pendientes.")
-        return
-
-    lines = ["🧾 Compras pendientes:"]
-    for item in items[-20:]:
-        lines.append(
-            f"\nID: {item['purchase_id']}"
-            f"\nUsuario: {item.get('display_name', 'Jugador')}"
-            f"\nUser key: {item.get('user_key', '')}"
-            f"\nPaís: {item.get('country', '')}"
-            f"\nFichas: {item.get('qty', 1)}"
-            f"\nFecha: {item.get('created_at', '')}"
-        )
-
-    await update.message.reply_text("\n".join(lines))
-
-
-async def aprobar_compra_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message:
-        return
-
-    if not is_admin(update.effective_user.id, ADMIN_IDS):
-        await update.message.reply_text("No autorizado.")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Uso: /aprobarcompra ID_COMPRA")
-        return
-
-    purchase_id = context.args[0].strip()
-    approved = approve_purchase_by_id(purchase_id, update.effective_user.id, PURCHASES_FILE, USERS_FILE)
-    if not approved:
-        await update.message.reply_text("Compra no encontrada o ya aprobada.")
-        return
-
-    users = load_users(USERS_FILE)
-    profile = users.get(approved["user_key"], {})
-    await update.message.reply_text(
-        f"✅ Compra aprobada\n"
-        f"ID: {purchase_id}\n"
-        f"Usuario: {approved.get('display_name', 'Jugador')}\n"
-        f"Fichas acreditadas: {approved.get('qty', 1)}\n"
-        f"Saldo actual: {profile.get('fichas', 0)}"
-    )
-
-
-async def sumar_fichas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message:
-        return
-
-    if not is_admin(update.effective_user.id, ADMIN_IDS):
-        await update.message.reply_text("No autorizado.")
-        return
-
-    if len(context.args) < 2:
-        await update.message.reply_text("Uso: /sumarfichas USER_ID CANTIDAD")
-        return
-
-    user_id = context.args[0].strip()
-    try:
-        amount = int(context.args[1])
-    except ValueError:
-        await update.message.reply_text("Cantidad inválida.")
-        return
-
-    users = load_users(USERS_FILE)
-    profile = users.get(str(user_id))
-    if not profile:
-        await update.message.reply_text("Usuario no encontrado en users_data.json")
-        return
-
-    profile["fichas"] = max(0, int(profile.get("fichas", 0)) + amount)
-    profile["updated_at"] = now_iso()
-    users[str(user_id)] = profile
-    save_users(users, USERS_FILE)
-
-    await update.message.reply_text(
-        f"✅ Fichas actualizadas\n"
-        f"Usuario: {profile.get('display_name', 'Jugador')}\n"
-        f"Saldo: {profile.get('fichas', 0)}"
-    )
-
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    if not query:
-        return
-
-    await query.answer()
-    user = query.from_user
-    currency = get_currency_from_language(getattr(user, "language_code", None), DEFAULT_CURRENCY)
-
-    if query.data == "view_prizes" and query.message:
-        await query.message.reply_text(
-            f"🎁 Premios ({currency}):\n\n"
-            f"{format_prize_list(REAL_PRIZES, currency, UYU_TO_ARS, DEFAULT_CURRENCY)}\n\n"
-            f"🎟 Valor de la ficha: {ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY)}"
-        )
-        return
-
-    if query.data == "view_tokens" and query.message:
-        _, profile = get_user_profile(
-            user.id,
-            user.username,
-            user.full_name,
-            USERS_FILE,
-            DEFAULT_CURRENCY,
-            DEMO_SPINS,
-        )
-        await query.message.reply_text(
-            f"🎟 Tus fichas: {profile.get('fichas', 0)}\n"
-            f"🆓 Demo disponible: {profile.get('demo_spins_left', 0)}"
-        )
-
-
-def build_bot_application():
-    if not TOKEN:
-        raise RuntimeError("Falta TELEGRAM_BOT_TOKEN en variables de entorno.")
-
-    bot_app = ApplicationBuilder().token(TOKEN).build()
-    bot_app.add_handler(CommandHandler("start", start))
-    bot_app.add_handler(CommandHandler("help", help_command))
-    bot_app.add_handler(CommandHandler("premios", premios_command))
-    bot_app.add_handler(CommandHandler("myid", myid_command))
-    bot_app.add_handler(CommandHandler("misfichas", misfichas_command))
-    bot_app.add_handler(CommandHandler("stats", stats_command))
-    bot_app.add_handler(CommandHandler("compraspendientes", compras_pendientes_command))
-    bot_app.add_handler(CommandHandler("aprobarcompra", aprobar_compra_command))
-    bot_app.add_handler(CommandHandler("sumarfichas", sumar_fichas_command))
-    bot_app.add_handler(CallbackQueryHandler(button_handler))
-    return bot_app
-
-
-def run_bot_polling() -> None:
-    try:
-        bot_app = build_bot_application()
-        logger.info("%s iniciado correctamente.", BOT_NAME)
-        bot_app.run_polling(drop_pending_updates=True)
-    except Exception:
-        logger.exception("Error al iniciar el bot de Telegram.")
-
-
-def start_bot_background_once() -> None:
-    global _bot_started
-
-    if not RUN_TELEGRAM_BOT:
-        return
-    if not TOKEN:
-        logger.warning("RUN_TELEGRAM_BOT=true pero falta TELEGRAM_BOT_TOKEN.")
-        return
-
-    with _bot_lock:
-        if _bot_started:
-            return
-        _bot_started = True
-        thread = threading.Thread(target=run_bot_polling, daemon=True)
-        thread.start()
-        logger.info("Bot de Telegram lanzado en background.")
-
-
-# =========================================================
-# RUTAS
-# =========================================================
-
-@app.after_request
-def add_no_cache_headers(response):
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
-
-
-@app.get("/")
-def home():
-    return wheel_page()
-
-
-@app.get("/health")
-def health():
-    return jsonify(
-        {
-            "ok": True,
-            "service": BOT_NAME,
-            "bot_running": RUN_TELEGRAM_BOT,
+<!doctype html>
+<html lang="es" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#12030a">
+  <meta name="color-scheme" content="dark">
+  <meta name="format-detection" content="telephone=no, email=no, address=no">
+  <title>{{ bot_name|default('Ruleta Premium', true)|e }}</title>
+  <style>
+    :root{
+      --bg-0:#070106;
+      --bg-1:#10020a;
+      --bg-2:#1b0410;
+      --bg-3:#280718;
+      --bg-4:#381129;
+      --bg-5:#4d1734;
+      --gold-1:#fff6d8;
+      --gold-2:#ffe8a1;
+      --gold-3:#ffd765;
+      --gold-4:#ffbe3c;
+      --gold-5:#e19014;
+      --gold-6:#8a4f03;
+      --rose-1:#ffb3d1;
+      --rose-2:#ff74ae;
+      --rose-3:#ff3c8f;
+      --rose-4:#d91d6d;
+      --violet-1:#d6bbff;
+      --violet-2:#ab7fff;
+      --violet-3:#7547ff;
+      --cyan-1:#baf7ff;
+      --cyan-2:#6beaff;
+      --cyan-3:#13cfe5;
+      --text-1:#fff8fc;
+      --text-2:#f4dbe6;
+      --text-3:#cba8b8;
+      --success:#43f2a6;
+      --danger:#ff6d7f;
+      --warning:#ffd56f;
+      --shadow-soft:0 12px 38px rgba(0,0,0,.32);
+      --shadow-strong:0 24px 60px rgba(0,0,0,.45);
+      --ring:0 0 0 1px rgba(255,255,255,.08), 0 10px 30px rgba(0,0,0,.35);
+      --glass:linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.05));
+      --glass-2:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
+      --radius-xl:26px;
+      --radius-lg:20px;
+      --radius-md:16px;
+      --radius-sm:12px;
+      --safe-top:env(safe-area-inset-top, 0px);
+      --safe-bottom:env(safe-area-inset-bottom, 0px);
+      --header-h:76px;
+      --wheel-size:min(72vw, 620px);
+      --wheel-glow:0 0 0 2px rgba(255,216,100,.2), 0 0 42px rgba(255,73,152,.22), 0 0 90px rgba(117,71,255,.12);
+      --txt-shadow:
+        0 2px 10px rgba(0,0,0,.78),
+        0 1px 0 rgba(0,0,0,.9),
+        0 0 24px rgba(0,0,0,.18);
+    }
+
+    *{box-sizing:border-box}
+    *::before,*::after{box-sizing:border-box}
+
+    html,body{
+      min-height:100%;
+      margin:0;
+      padding:0;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(255,111,170,.18), transparent 22%),
+        radial-gradient(circle at 82% 18%, rgba(111,239,255,.12), transparent 22%),
+        radial-gradient(circle at 50% 55%, rgba(163,86,255,.12), transparent 28%),
+        linear-gradient(180deg, var(--bg-0), var(--bg-2) 32%, var(--bg-1) 55%, #060105 100%);
+      color:var(--text-1);
+      font-family:Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      -webkit-text-size-adjust:100%;
+      text-rendering:optimizeLegibility;
+      overflow-x:hidden;
+    }
+
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      background:
+        radial-gradient(circle at center, transparent 35%, rgba(0,0,0,.28) 100%),
+        linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));
+      mix-blend-mode:screen;
+      opacity:.8;
+      z-index:0;
+    }
+
+    body::after{
+      content:"";
+      position:fixed;
+      inset:-20%;
+      pointer-events:none;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          rgba(255,255,255,.015) 0 2px,
+          transparent 2px 16px
+        );
+      opacity:.22;
+      z-index:0;
+      transform:translateZ(0);
+    }
+
+    a{color:inherit;text-decoration:none}
+    button,input,select{font:inherit}
+    img,canvas{display:block;max-width:100%}
+
+    .app-shell{
+      position:relative;
+      z-index:1;
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+      padding:calc(var(--safe-top) + 14px) 14px calc(var(--safe-bottom) + 22px);
+    }
+
+    .topbar{
+      position:sticky;
+      top:0;
+      z-index:40;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      min-height:var(--header-h);
+      padding:14px 18px;
+      border-radius:24px;
+      background:
+        linear-gradient(180deg, rgba(22,7,18,.88), rgba(12,4,10,.78));
+      backdrop-filter:blur(20px) saturate(140%);
+      border:1px solid rgba(255,255,255,.08);
+      box-shadow:var(--shadow-soft);
+      margin-bottom:16px;
+    }
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      min-width:0;
+    }
+
+    .brand-badge{
+      width:48px;
+      height:48px;
+      border-radius:16px;
+      display:grid;
+      place-items:center;
+      font-size:24px;
+      background:
+        radial-gradient(circle at 30% 25%, #fff4c0, transparent 25%),
+        linear-gradient(135deg, rgba(255,215,101,.95), rgba(255,61,145,.95) 55%, rgba(117,71,255,.95));
+      box-shadow:
+        inset 0 1px 1px rgba(255,255,255,.45),
+        0 12px 24px rgba(0,0,0,.28),
+        0 0 22px rgba(255,90,155,.28);
+      color:#2b0d1b;
+      flex:none;
+    }
+
+    .brand-copy{min-width:0}
+    .eyebrow{
+      font-size:12px;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:var(--gold-2);
+      font-weight:800;
+      opacity:.95;
+    }
+
+    .brand-title{
+      font-size:clamp(18px, 2.1vw, 28px);
+      line-height:1.05;
+      margin:2px 0 0;
+      font-weight:900;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .top-actions{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      min-height:42px;
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(255,255,255,.06);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+      color:var(--text-2);
+      font-weight:700;
+      white-space:nowrap;
+    }
+
+    .pill strong{
+      color:#fff;
+      font-weight:900;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns:380px minmax(0,1fr) 320px;
+      gap:18px;
+      align-items:start;
+    }
+
+    .card{
+      position:relative;
+      border-radius:var(--radius-xl);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.035)),
+        linear-gradient(180deg, rgba(18,7,14,.88), rgba(11,4,9,.82));
+      border:1px solid rgba(255,255,255,.08);
+      box-shadow:var(--shadow-soft);
+      overflow:hidden;
+      isolation:isolate;
+    }
+
+    .card::before{
+      content:"";
+      position:absolute;
+      inset:0 0 auto 0;
+      height:1px;
+      background:linear-gradient(90deg, transparent, rgba(255,255,255,.42), transparent);
+      opacity:.5;
+    }
+
+    .panel{
+      padding:18px;
+    }
+
+    .section-title{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin:0 0 14px;
+    }
+
+    .section-title h2{
+      margin:0;
+      font-size:clamp(18px, 1.8vw, 24px);
+      line-height:1.1;
+      font-weight:900;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .section-title small{
+      color:var(--text-3);
+      font-weight:700;
+    }
+
+    .hero-card{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      min-height:calc(100vh - 160px);
+    }
+
+    .welcome-banner{
+      position:relative;
+      padding:18px;
+      border-radius:22px;
+      background:
+        radial-gradient(circle at top left, rgba(255,224,119,.22), transparent 24%),
+        radial-gradient(circle at bottom right, rgba(255,75,145,.18), transparent 24%),
+        linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.08);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+    }
+
+    .welcome-banner h1{
+      margin:0;
+      font-size:clamp(26px, 3vw, 40px);
+      line-height:1.02;
+      font-weight:1000;
+      letter-spacing:-.03em;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .welcome-banner p{
+      margin:10px 0 0;
+      color:var(--text-2);
+      font-size:15px;
+      line-height:1.55;
+    }
+
+    .stats-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:12px;
+    }
+
+    .stat{
+      padding:16px;
+      border-radius:20px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.08);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+      min-height:102px;
+    }
+
+    .stat-label{
+      color:var(--text-3);
+      font-size:12px;
+      text-transform:uppercase;
+      letter-spacing:.16em;
+      font-weight:900;
+    }
+
+    .stat-value{
+      margin-top:8px;
+      font-size:clamp(22px, 2.6vw, 34px);
+      line-height:1;
+      font-weight:1000;
+      color:#fff;
+      text-shadow:var(--txt-shadow);
+      word-break:break-word;
+    }
+
+    .stat-help{
+      margin-top:8px;
+      color:var(--text-2);
+      font-size:13px;
+      line-height:1.45;
+    }
+
+    .name-form{
+      display:grid;
+      gap:12px;
+    }
+
+    .field{
+      display:grid;
+      gap:8px;
+    }
+
+    .field label{
+      font-size:12px;
+      font-weight:900;
+      letter-spacing:.14em;
+      text-transform:uppercase;
+      color:var(--gold-2);
+    }
+
+    .input-wrap{
+      position:relative;
+    }
+
+    .input{
+      width:100%;
+      min-height:56px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.1);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      color:#fff;
+      padding:14px 16px;
+      outline:none;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+      transition:.2s ease;
+    }
+
+    .input::placeholder{
+      color:#c9a8b7;
+      opacity:1;
+    }
+
+    .input:focus{
+      border-color:rgba(255,200,100,.65);
+      box-shadow:
+        0 0 0 4px rgba(255,196,84,.12),
+        inset 0 1px 0 rgba(255,255,255,.08);
+      transform:translateY(-1px);
+    }
+
+    .btn-row{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .btn{
+      appearance:none;
+      border:none;
+      cursor:pointer;
+      min-height:54px;
+      padding:14px 18px;
+      border-radius:18px;
+      font-weight:900;
+      letter-spacing:.01em;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      transition:transform .16s ease, box-shadow .16s ease, filter .16s ease, opacity .16s ease;
+      box-shadow:var(--shadow-soft);
+      user-select:none;
+      text-align:center;
+    }
+
+    .btn:active{
+      transform:translateY(1px) scale(.995);
+    }
+
+    .btn:disabled{
+      opacity:.55;
+      cursor:not-allowed;
+      filter:saturate(.65);
+    }
+
+    .btn-primary{
+      color:#2d0f1d;
+      background:
+        linear-gradient(180deg, #fff6d9, #ffd76a 40%, #ffb935 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.55),
+        0 12px 24px rgba(255,171,27,.18),
+        0 8px 20px rgba(0,0,0,.28);
+    }
+
+    .btn-primary:hover{
+      filter:brightness(1.03);
+      transform:translateY(-1px);
+    }
+
+    .btn-accent{
+      color:#fff;
+      background:
+        linear-gradient(135deg, #ff5ca4, #ff2f8f 48%, #8a4dff);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.32),
+        0 14px 26px rgba(159,38,111,.24);
+    }
+
+    .btn-dark{
+      color:#fff;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.08);
+    }
+
+    .btn-cyan{
+      color:#041b21;
+      background:
+        linear-gradient(180deg, #d3fbff, #70eefe 55%, #19d7ef);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.45),
+        0 12px 24px rgba(20,215,235,.18);
+    }
+
+    .hint{
+      font-size:13px;
+      line-height:1.5;
+      color:var(--text-2);
+    }
+
+    .tiny{
+      font-size:12px;
+      line-height:1.45;
+      color:var(--text-3);
+    }
+
+    .wheel-card{
+      position:relative;
+      min-height:calc(100vh - 160px);
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      align-items:center;
+      padding:20px 20px 24px;
+      overflow:visible;
+    }
+
+    .wheel-stage{
+      position:relative;
+      width:100%;
+      display:grid;
+      place-items:center;
+      padding:10px 0 16px;
+      perspective:1600px;
+    }
+
+    .wheel-rig{
+      position:relative;
+      width:var(--wheel-size);
+      height:var(--wheel-size);
+      max-width:100%;
+      transform-style:preserve-3d;
+      filter:drop-shadow(0 24px 42px rgba(0,0,0,.35));
+    }
+
+    .wheel-rig.is-flashing{
+      animation:flashRig .8s ease 0s 2;
+    }
+
+    @keyframes flashRig{
+      0%,100%{filter:drop-shadow(0 24px 42px rgba(0,0,0,.35))}
+      50%{filter:drop-shadow(0 20px 44px rgba(255,216,100,.4)) drop-shadow(0 0 40px rgba(255,60,143,.3))}
+    }
+
+    .pointer-wrap{
+      position:absolute;
+      top:-8px;
+      left:50%;
+      transform:translateX(-50%);
+      z-index:8;
+      display:grid;
+      place-items:center;
+      pointer-events:none;
+    }
+
+    .pointer-core{
+      width:116px;
+      height:116px;
+      border-radius:999px;
+      display:grid;
+      place-items:center;
+      background:
+        radial-gradient(circle at 35% 30%, rgba(255,255,255,.88), transparent 18%),
+        linear-gradient(180deg, #fff9df, #ffd86a 55%, #ffb530 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.75),
+        0 10px 24px rgba(0,0,0,.34),
+        0 0 24px rgba(255,214,101,.18);
+      border:2px solid rgba(255,255,255,.45);
+    }
+
+    .pointer-core::after{
+      content:"";
+      position:absolute;
+      width:0;
+      height:0;
+      border-left:18px solid transparent;
+      border-right:18px solid transparent;
+      border-top:40px solid #ffd86a;
+      bottom:-26px;
+      filter:drop-shadow(0 6px 8px rgba(0,0,0,.26));
+    }
+
+    .pointer-mini{
+      width:34px;
+      height:34px;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 30% 28%, rgba(255,255,255,.95), transparent 20%),
+        linear-gradient(180deg, #ffeff6, #ff8cb6 45%, #ff2e8b 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.6),
+        0 8px 14px rgba(0,0,0,.25);
+    }
+
+    .wheel-outer{
+      position:absolute;
+      inset:0;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 50% 45%, rgba(255,255,255,.12), transparent 48%),
+        linear-gradient(180deg, #fff3ca, #ffd970 38%, #f6a91b 70%, #834702 100%);
+      box-shadow:
+        inset 0 3px 0 rgba(255,255,255,.5),
+        inset 0 -6px 16px rgba(99,49,2,.48),
+        var(--wheel-glow);
+      transform:translateZ(0);
+    }
+
+    .wheel-shadow{
+      position:absolute;
+      inset:auto 10% -5% 10%;
+      height:18%;
+      border-radius:999px;
+      background:radial-gradient(ellipse at center, rgba(0,0,0,.42), rgba(0,0,0,0) 70%);
+      filter:blur(18px);
+      z-index:-1;
+      pointer-events:none;
+    }
+
+    .wheel-plate{
+      position:absolute;
+      inset:18px;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 50% 20%, rgba(255,255,255,.12), transparent 25%),
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.1);
+      box-shadow:
+        inset 0 2px 10px rgba(255,255,255,.05),
+        inset 0 -18px 26px rgba(0,0,0,.18);
+      overflow:hidden;
+      transform-style:preserve-3d;
+    }
+
+    .wheel-plate::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 28% 18%, rgba(255,255,255,.16), transparent 15%),
+        radial-gradient(circle at 72% 74%, rgba(255,255,255,.08), transparent 12%);
+      pointer-events:none;
+    }
+
+    .wheel-canvas{
+      width:100%;
+      height:100%;
+      border-radius:999px;
+      transform:rotateX(10deg);
+      will-change:transform;
+      backface-visibility:hidden;
+    }
+
+    .wheel-center{
+      position:absolute;
+      inset:50%;
+      width:28%;
+      height:28%;
+      transform:translate(-50%, -50%);
+      border-radius:999px;
+      display:grid;
+      place-items:center;
+      z-index:4;
+      background:
+        radial-gradient(circle at 30% 25%, rgba(255,255,255,.75), transparent 18%),
+        linear-gradient(180deg, #fff6db, #ffd871 42%, #ffb534 100%);
+      border:2px solid rgba(255,255,255,.45);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.7),
+        0 10px 24px rgba(0,0,0,.26),
+        0 0 28px rgba(255,216,101,.18);
+    }
+
+    .wheel-center::before{
+      content:"";
+      position:absolute;
+      inset:12%;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 30% 25%, rgba(255,255,255,.9), transparent 20%),
+        linear-gradient(180deg, #ffeff7, #ff91bb 45%, #ff307f 100%);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.6);
+    }
+
+    .wheel-center-text{
+      position:relative;
+      z-index:1;
+      text-align:center;
+      font-size:clamp(12px, 1.1vw, 15px);
+      font-weight:1000;
+      line-height:1.05;
+      color:#fff8fa;
+      letter-spacing:.06em;
+      text-shadow:var(--txt-shadow);
+      text-transform:uppercase;
+      padding:0 8px;
+    }
+
+    .wheel-status{
+      margin-top:16px;
+      width:min(100%, 680px);
+      display:grid;
+      gap:12px;
+    }
+
+    .status-banner{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      padding:14px 16px;
+      border-radius:18px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.08);
+    }
+
+    .status-main{
+      display:flex;
+      flex-direction:column;
+      gap:5px;
+      min-width:0;
+    }
+
+    .status-title{
+      font-weight:1000;
+      font-size:clamp(16px, 1.6vw, 22px);
+      text-shadow:var(--txt-shadow);
+      word-break:break-word;
+    }
+
+    .status-subtitle{
+      color:var(--text-2);
+      font-size:14px;
+      line-height:1.45;
+      word-break:break-word;
+    }
+
+    .status-tag{
+      padding:10px 14px;
+      border-radius:999px;
+      background:rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.08);
+      font-weight:900;
+      white-space:nowrap;
+      color:#fff;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .action-grid{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0,1fr));
+      gap:12px;
+    }
+
+    .action-grid .btn{
+      width:100%;
+    }
+
+    .history-list,
+    .prize-list{
+      display:grid;
+      gap:10px;
+    }
+
+    .history-item,
+    .prize-item{
+      display:grid;
+      gap:6px;
+      padding:14px;
+      border-radius:18px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.07);
+    }
+
+    .history-head,
+    .prize-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+    }
+
+    .history-name,
+    .prize-name{
+      font-size:15px;
+      line-height:1.35;
+      font-weight:900;
+      color:#fff;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .history-badge,
+    .prize-badge{
+      flex:none;
+      border-radius:999px;
+      padding:7px 10px;
+      font-size:12px;
+      font-weight:900;
+      background:rgba(255,255,255,.07);
+      border:1px solid rgba(255,255,255,.08);
+      color:var(--gold-1);
+      white-space:nowrap;
+    }
+
+    .history-meta,
+    .prize-meta{
+      color:var(--text-2);
+      font-size:13px;
+      line-height:1.5;
+    }
+
+    .buy-box{
+      display:grid;
+      gap:12px;
+    }
+
+    .buy-row{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+
+    .stepper{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:10px;
+      border-radius:18px;
+      background:rgba(255,255,255,.05);
+      border:1px solid rgba(255,255,255,.08);
+    }
+
+    .stepper button{
+      width:42px;
+      height:42px;
+      border-radius:14px;
+      border:none;
+      cursor:pointer;
+      font-weight:1000;
+      color:#fff;
+      background:rgba(255,255,255,.09);
+    }
+
+    .stepper .qty-display{
+      flex:1;
+      min-width:0;
+      text-align:center;
+      font-weight:1000;
+      font-size:20px;
+      color:#fff;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .country-switch{
+      display:grid;
+      grid-template-columns:repeat(2,1fr);
+      gap:10px;
+    }
+
+    .chip{
+      min-height:52px;
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(255,255,255,.06);
+      color:var(--text-1);
+      font-weight:900;
+      cursor:pointer;
+      padding:12px 14px;
+      transition:.18s ease;
+    }
+
+    .chip.active{
+      color:#281014;
+      background:
+        linear-gradient(180deg, #fff7da, #ffd96d 45%, #ffbc38);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.65),
+        0 12px 22px rgba(255,183,48,.16);
+    }
+
+    .totals{
+      display:grid;
+      gap:8px;
+      padding:14px;
+      border-radius:18px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.07);
+    }
+
+    .totals-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      color:var(--text-2);
+      font-size:14px;
+    }
+
+    .totals-row strong{
+      color:#fff;
+      font-size:16px;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .footer-note{
+      margin-top:auto;
+      text-align:center;
+      color:var(--text-3);
+      font-size:12px;
+      line-height:1.5;
+      padding-top:8px;
+    }
+
+    .toast-wrap{
+      position:fixed;
+      top:calc(var(--safe-top) + 18px);
+      right:18px;
+      z-index:80;
+      display:grid;
+      gap:10px;
+      width:min(92vw, 380px);
+      pointer-events:none;
+    }
+
+    .toast{
+      pointer-events:auto;
+      display:grid;
+      gap:4px;
+      padding:14px 16px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.08);
+      background:
+        linear-gradient(180deg, rgba(22,7,17,.96), rgba(12,4,10,.92));
+      box-shadow:var(--shadow-soft);
+      opacity:0;
+      transform:translateY(-8px) scale(.98);
+      animation:toastIn .26s ease forwards;
+    }
+
+    .toast.success{border-color:rgba(67,242,166,.22)}
+    .toast.error{border-color:rgba(255,109,127,.22)}
+    .toast.info{border-color:rgba(107,234,255,.2)}
+
+    @keyframes toastIn{
+      to{opacity:1;transform:translateY(0) scale(1)}
+    }
+
+    .toast-title{
+      font-weight:1000;
+      color:#fff;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .toast-text{
+      color:var(--text-2);
+      font-size:14px;
+      line-height:1.45;
+    }
+
+    .modal-backdrop{
+      position:fixed;
+      inset:0;
+      z-index:90;
+      background:rgba(4,0,3,.68);
+      backdrop-filter:blur(10px);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+    }
+
+    .modal-backdrop.show{
+      display:flex;
+    }
+
+    .modal{
+      width:min(100%, 560px);
+      border-radius:28px;
+      overflow:hidden;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.1), rgba(255,255,255,.04)),
+        linear-gradient(180deg, rgba(21,7,18,.98), rgba(11,4,9,.97));
+      border:1px solid rgba(255,255,255,.08);
+      box-shadow:var(--shadow-strong);
+      transform:translateY(12px) scale(.98);
+      opacity:0;
+      animation:modalIn .22s ease forwards;
+    }
+
+    @keyframes modalIn{
+      to{transform:translateY(0) scale(1);opacity:1}
+    }
+
+    .modal-hero{
+      padding:22px 22px 12px;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255,217,111,.2), transparent 26%),
+        radial-gradient(circle at 90% 20%, rgba(255,52,138,.2), transparent 20%),
+        linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0));
+    }
+
+    .modal-title{
+      margin:0;
+      font-size:clamp(24px, 3vw, 34px);
+      line-height:1.02;
+      font-weight:1000;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .modal-subtitle{
+      margin:10px 0 0;
+      color:var(--text-2);
+      line-height:1.55;
+      font-size:15px;
+    }
+
+    .modal-body{
+      padding:8px 22px 22px;
+      display:grid;
+      gap:14px;
+    }
+
+    .result-prize{
+      padding:18px;
+      border-radius:22px;
+      text-align:center;
+      background:
+        radial-gradient(circle at top left, rgba(255,225,117,.18), transparent 24%),
+        radial-gradient(circle at bottom right, rgba(255,61,145,.16), transparent 26%),
+        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.08);
+    }
+
+    .result-prize strong{
+      display:block;
+      font-size:clamp(24px, 3vw, 36px);
+      line-height:1.02;
+      font-weight:1000;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .result-prize span{
+      display:block;
+      margin-top:8px;
+      color:var(--text-2);
+      font-size:15px;
+      line-height:1.5;
+    }
+
+    .result-actions{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+
+    .confetti-canvas{
+      position:fixed;
+      inset:0;
+      z-index:95;
+      pointer-events:none;
+    }
+
+    .sr-only{
+      position:absolute!important;
+      width:1px;height:1px;
+      padding:0;margin:-1px;
+      overflow:hidden;clip:rect(0,0,0,0);
+      white-space:nowrap;border:0;
+    }
+
+    @keyframes pulseGlow{
+      0%,100%{box-shadow:var(--wheel-glow)}
+      50%{box-shadow:0 0 0 2px rgba(255,216,100,.24), 0 0 70px rgba(255,60,143,.24), 0 0 120px rgba(117,71,255,.16)}
+    }
+
+    .wheel-rig.idle{
+      animation:pulseGlow 3.2s ease-in-out infinite;
+    }
+
+    @media (max-width: 1280px){
+      .grid{
+        grid-template-columns:330px minmax(0,1fr);
+      }
+      .right-col{
+        grid-column:1 / -1;
+      }
+      .hero-card,.wheel-card{
+        min-height:auto;
+      }
+    }
+
+    @media (max-width: 960px){
+      .grid{
+        grid-template-columns:1fr;
+      }
+      .hero-card,.wheel-card{
+        min-height:auto;
+      }
+      .topbar{
+        position:relative;
+        padding:14px;
+      }
+      .action-grid{
+        grid-template-columns:1fr;
+      }
+      .result-actions{
+        grid-template-columns:1fr;
+      }
+      .buy-row{
+        grid-template-columns:1fr;
+      }
+      .stats-grid{
+        grid-template-columns:1fr 1fr;
+      }
+    }
+
+    @media (max-width: 640px){
+      :root{
+        --wheel-size:min(88vw, 460px);
+      }
+      .app-shell{
+        padding:calc(var(--safe-top) + 10px) 10px calc(var(--safe-bottom) + 18px);
+      }
+      .topbar{
+        border-radius:20px;
+        gap:10px;
+      }
+      .brand-badge{
+        width:44px;height:44px;border-radius:14px;font-size:22px;
+      }
+      .panel{
+        padding:14px;
+      }
+      .welcome-banner{
+        padding:16px;
+      }
+      .stats-grid{
+        grid-template-columns:1fr;
+      }
+      .country-switch{
+        grid-template-columns:1fr;
+      }
+      .pointer-core{
+        width:98px;height:98px;
+      }
+      .pointer-core::after{
+        border-left-width:16px;
+        border-right-width:16px;
+        border-top-width:34px;
+        bottom:-22px;
+      }
+      .wheel-center{
+        width:31%;
+        height:31%;
+      }
+      .wheel-center-text{
+        font-size:11px;
+      }
+      .toast-wrap{
+        left:10px;right:10px;width:auto;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      *, *::before, *::after{
+        animation-duration:.001ms!important;
+        animation-iteration-count:1!important;
+        transition-duration:.001ms!important;
+        scroll-behavior:auto!important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="confettiCanvas" class="confetti-canvas" aria-hidden="true"></canvas>
+
+  <div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="true"></div>
+
+  <div class="modal-backdrop" id="welcomeModal" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+    <div class="modal">
+      <div class="modal-hero">
+        <h2 class="modal-title" id="welcomeTitle">Bienvenido/a a {{ bot_name|default('Ruleta Premium', true)|e }}</h2>
+        <p class="modal-subtitle">
+          Ingresá tu nombre, usá tu demo gratis y girá por premios reales con una ruleta premium.
+        </p>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="welcomeNameInput">Tu nombre para jugar</label>
+          <div class="input-wrap">
+            <input
+              id="welcomeNameInput"
+              class="input"
+              type="text"
+              maxlength="40"
+              autocomplete="name"
+              placeholder="Ej: Gabriel"
+              value="{{ display_name|default('Jugador', true)|e }}"
+            >
+          </div>
+        </div>
+        <div class="hint">
+          Tu nombre se guarda para saludarte, mostrar tu premio y registrar tus giros.
+        </div>
+        <div class="result-actions">
+          <button class="btn btn-dark" id="welcomeSkipBtn" type="button">Seguir así</button>
+          <button class="btn btn-accent" id="welcomeSaveBtn" type="button">Guardar y empezar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="resultModal" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+    <div class="modal">
+      <div class="modal-hero">
+        <h2 class="modal-title" id="resultTitle">Tu resultado</h2>
+        <p class="modal-subtitle" id="resultSubtitle">
+          Gracias por jugar.
+        </p>
+      </div>
+      <div class="modal-body">
+        <div class="result-prize">
+          <strong id="resultPrizeName">Premio</strong>
+          <span id="resultPrizeValue">Valorizado</span>
+        </div>
+        <div class="hint" id="resultThanksText">
+          Gracias por jugar.
+        </div>
+        <div class="result-actions">
+          <button class="btn btn-dark" id="resultCloseBtn" type="button">Cerrar</button>
+          <button class="btn btn-primary" id="resultSpinAgainBtn" type="button">Volver a girar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-badge" aria-hidden="true">🎰</div>
+        <div class="brand-copy">
+          <div class="eyebrow">Experiencia premium</div>
+          <div class="brand-title">{{ bot_name|default('Ruleta Premium', true)|e }}</div>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <div class="pill">💱 <strong id="topCurrency">{{ currency|default('UYU', true)|e }}</strong></div>
+        <div class="pill">🎟 <strong id="topTokens">{{ fichas|default(0, true) }}</strong></div>
+        <div class="pill">🆓 <strong id="topDemo">{{ demo_spins_left|default(0, true) }}</strong></div>
+      </div>
+    </header>
+
+    <section class="grid">
+      <aside class="card hero-card">
+        <div class="panel">
+          <div class="welcome-banner">
+            <h1 id="heroGreeting">Hola, {{ display_name|default('Jugador', true)|e }}</h1>
+            <p>
+              Elegí tu nombre, usá tu demo gratis, comprá fichas y girá una ruleta con estilo premium, mejor contraste
+              y textos mucho más legibles.
+            </p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="section-title">
+            <h2>Tu panel</h2>
+            <small>Todo sincronizado</small>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat">
+              <div class="stat-label">Tus fichas</div>
+              <div class="stat-value" id="statTokens">{{ fichas|default(0, true) }}</div>
+              <div class="stat-help">Saldo listo para girar.</div>
+            </div>
+
+            <div class="stat">
+              <div class="stat-label">Demo gratis</div>
+              <div class="stat-value" id="statDemo">{{ demo_spins_left|default(0, true) }}</div>
+              <div class="stat-help">Usá tu tiro gratis primero.</div>
+            </div>
+
+            <div class="stat">
+              <div class="stat-label">Moneda</div>
+              <div class="stat-value" id="statCurrency">{{ currency|default('UYU', true)|e }}</div>
+              <div class="stat-help">Se usa para mostrar precios.</div>
+            </div>
+
+            <div class="stat">
+              <div class="stat-label">Valor ficha</div>
+              <div class="stat-value" id="statTicket">{{ ticket_price_label|default('250 UYU', true)|e }}</div>
+              <div class="stat-help">Precio unitario por ficha.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="section-title">
+            <h2>Tu nombre de jugador</h2>
+            <small>Guardado automático</small>
+          </div>
+
+          <form class="name-form" id="nameForm">
+            <div class="field">
+              <label for="playerNameInput">Nombre visible</label>
+              <div class="input-wrap">
+                <input
+                  id="playerNameInput"
+                  class="input"
+                  type="text"
+                  maxlength="40"
+                  autocomplete="name"
+                  placeholder="Ingresá tu nombre"
+                  value="{{ display_name|default('Jugador', true)|e }}"
+                >
+              </div>
+            </div>
+
+            <div class="btn-row">
+              <button class="btn btn-accent" type="submit">💾 Guardar nombre</button>
+              <button class="btn btn-dark" id="restoreNameBtn" type="button">↺ Restaurar</button>
+            </div>
+
+            <div class="hint">
+              Tu nombre se usa para la bienvenida, el mensaje final del premio y el registro de tus giros.
+            </div>
+          </form>
+        </div>
+
+        <div class="panel">
+          <div class="section-title">
+            <h2>Últimos resultados</h2>
+            <small>Sesión actual</small>
+          </div>
+
+          <div class="history-list" id="historyList">
+            <div class="history-item">
+              <div class="history-head">
+                <div class="history-name">Todavía no giraste</div>
+                <div class="history-badge">Listo</div>
+              </div>
+              <div class="history-meta">
+                Cuando hagas tu primer giro, tu historial aparecerá acá.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          Premium UI · responsive · alto contraste · visual 3D · demo gratis · compra de fichas · Telegram admin
+        </div>
+      </aside>
+
+      <section class="card wheel-card">
+        <div class="section-title" style="width:100%;max-width:700px;">
+          <h2>Ruleta premium 3D</h2>
+          <small id="wheelStateLabel">Lista para girar</small>
+        </div>
+
+        <div class="wheel-stage">
+          <div class="wheel-rig idle" id="wheelRig">
+            <div class="pointer-wrap" aria-hidden="true">
+              <div class="pointer-core">
+                <div class="pointer-mini"></div>
+              </div>
+            </div>
+
+            <div class="wheel-outer"></div>
+            <div class="wheel-shadow"></div>
+
+            <div class="wheel-plate" id="wheelPlate">
+              <canvas id="wheelCanvas" class="wheel-canvas" width="1200" height="1200" aria-label="Ruleta de premios"></canvas>
+            </div>
+
+            <div class="wheel-center">
+              <div class="wheel-center-text">Girá<br>ahora</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="wheel-status">
+          <div class="status-banner">
+            <div class="status-main">
+              <div class="status-title" id="statusTitle">Bienvenido/a, {{ display_name|default('Jugador', true)|e }}</div>
+              <div class="status-subtitle" id="statusSubtitle">
+                Usá tu demo gratis o elegí cuántas fichas querés comprar.
+              </div>
+            </div>
+            <div class="status-tag" id="statusTag">🎁 Demo disponible</div>
+          </div>
+
+          <div class="action-grid">
+            <button class="btn btn-primary" id="spinDemoBtn" type="button">🆓 Girar demo</button>
+            <button class="btn btn-accent" id="spinPaidBtn" type="button">🎰 Girar con ficha</button>
+            <button class="btn btn-cyan" id="openBuyBtn" type="button">💳 Comprar fichas</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="card right-col">
+        <div class="panel">
+          <div class="section-title">
+            <h2>Comprar fichas</h2>
+            <small>Pago por país</small>
+          </div>
+
+          <div class="buy-box">
+            <div class="country-switch" id="countrySwitch">
+              <button class="chip active" data-country="UY" type="button">🇺🇾 Uruguay</button>
+              <button class="chip" data-country="AR" type="button">🇦🇷 Argentina</button>
+            </div>
+
+            <div class="field">
+              <label>Cantidad de fichas</label>
+              <div class="stepper">
+                <button type="button" id="qtyMinusBtn" aria-label="Restar una ficha">−</button>
+                <div class="qty-display" id="qtyDisplay">1</div>
+                <button type="button" id="qtyPlusBtn" aria-label="Sumar una ficha">+</button>
+              </div>
+            </div>
+
+            <div class="totals">
+              <div class="totals-row">
+                <span>Valor por ficha</span>
+                <strong id="buyTicketPrice">{{ ticket_price_label|default('250 UYU', true)|e }}</strong>
+              </div>
+              <div class="totals-row">
+                <span>País seleccionado</span>
+                <strong id="buyCountryLabel">Uruguay</strong>
+              </div>
+              <div class="totals-row">
+                <span>Total estimado</span>
+                <strong id="buyTotalLabel">250 UYU</strong>
+              </div>
+            </div>
+
+            <div class="btn-row">
+              <button class="btn btn-primary" id="buyNowBtn" type="button">💳 Registrar compra</button>
+              <button class="btn btn-dark" id="copyPaymentBtn" type="button">🔗 Copiar link</button>
+            </div>
+
+            <div class="hint">
+              Al registrar la compra, se genera un pendiente para que luego acredites las fichas desde Telegram con
+              <strong>/compraspendientes</strong> y <strong>/aprobarcompra</strong>.
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="section-title">
+            <h2>Premios visibles</h2>
+            <small>Alta legibilidad</small>
+          </div>
+          <div class="prize-list" id="prizeList"></div>
+        </div>
+
+        <div class="panel">
+          <div class="section-title">
+            <h2>Ayuda rápida</h2>
+            <small>Tu flujo ideal</small>
+          </div>
+
+          <div class="prize-list">
+            <div class="prize-item">
+              <div class="prize-head">
+                <div class="prize-name">1. Guardá tu nombre</div>
+                <div class="prize-badge">Perfil</div>
+              </div>
+              <div class="prize-meta">Así la experiencia queda personalizada y más prolija.</div>
+            </div>
+
+            <div class="prize-item">
+              <div class="prize-head">
+                <div class="prize-name">2. Usá tu demo gratis</div>
+                <div class="prize-badge">Inicio</div>
+              </div>
+              <div class="prize-meta">Probás la ruleta sin gastar fichas.</div>
+            </div>
+
+            <div class="prize-item">
+              <div class="prize-head">
+                <div class="prize-name">3. Registrá una compra</div>
+                <div class="prize-badge">Pago</div>
+              </div>
+              <div class="prize-meta">Elegís país y cantidad de fichas.</div>
+            </div>
+
+            <div class="prize-item">
+              <div class="prize-head">
+                <div class="prize-name">4. Acreditá desde Telegram</div>
+                <div class="prize-badge">Admin</div>
+              </div>
+              <div class="prize-meta">
+                Usá <strong>/compraspendientes</strong> y luego <strong>/aprobarcompra ID</strong>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const rawPrizes = {{ prizes|safe }};
+      const rawUiConfig = {{ ui_config|safe if ui_config is defined else "{}" }};
+
+      const STATE = {
+        botName: String(rawUiConfig.botName || {{ bot_name|tojson|safe }} || "Ruleta Premium"),
+        defaultCurrency: String(rawUiConfig.defaultCurrency || {{ default_currency|default('UYU', true)|tojson|safe }} || "UYU").toUpperCase(),
+        currency: String(rawUiConfig.currency || {{ currency|tojson|safe }} || "UYU").toUpperCase(),
+        userId: String({{ user_id|default('', true)|tojson|safe }} || ""),
+        username: String({{ username|default('', true)|tojson|safe }} || ""),
+        fullName: String({{ full_name|default('', true)|tojson|safe }} || ""),
+        displayName: String(rawUiConfig.displayName || {{ display_name|default('Jugador', true)|tojson|safe }} || "Jugador"),
+        fichas: Number(rawUiConfig.fichas ?? {{ fichas|default(0, true)|tojson|safe }} ?? 0),
+        demoSpinsLeft: Number(rawUiConfig.demoSpinsLeft ?? {{ demo_spins_left|default(0, true)|tojson|safe }} ?? 0),
+        ticketPriceUyu: Number(rawUiConfig.ticketPriceUyu ?? {{ ticket_price_uyu|default(250, true)|tojson|safe }} ?? 250),
+        uyuToArs: Number(rawUiConfig.uyuToArs ?? {{ uyu_to_ars|default(25, true)|tojson|safe }} ?? 25),
+        ticketPriceLabel: String(rawUiConfig.ticketPriceLabel || {{ ticket_price_label|default('250 UYU', true)|tojson|safe }} || "250 UYU"),
+        mpLinkAr: String(rawUiConfig.mpLinkAr || {{ mp_link_ar|default('', true)|tojson|safe }} || ""),
+        mpLinkUy: String(rawUiConfig.mpLinkUy || {{ mp_link_uy|default('', true)|tojson|safe }} || ""),
+        prizes: Array.isArray(rawPrizes) ? rawPrizes : [],
+        maxPurchaseQty: Number(rawUiConfig?.limits?.maxPurchaseQty ?? {{ max_purchase_qty|default(100, true)|tojson|safe }} ?? 100),
+        initialDemoSpins: Number(rawUiConfig?.limits?.demoSpins ?? {{ demo_spins|default(1, true)|tojson|safe }} ?? 1),
+        selectedCountry: "UY",
+        qty: 1,
+        spinning: false,
+        history: [],
+        lastPrize: null,
+        rotationDeg: 0,
+        hasShownWelcome: false
+      };
+
+      const els = {
+        wheelCanvas: document.getElementById("wheelCanvas"),
+        wheelRig: document.getElementById("wheelRig"),
+        wheelPlate: document.getElementById("wheelPlate"),
+        topTokens: document.getElementById("topTokens"),
+        topDemo: document.getElementById("topDemo"),
+        topCurrency: document.getElementById("topCurrency"),
+        statTokens: document.getElementById("statTokens"),
+        statDemo: document.getElementById("statDemo"),
+        statCurrency: document.getElementById("statCurrency"),
+        statTicket: document.getElementById("statTicket"),
+        heroGreeting: document.getElementById("heroGreeting"),
+        playerNameInput: document.getElementById("playerNameInput"),
+        welcomeNameInput: document.getElementById("welcomeNameInput"),
+        restoreNameBtn: document.getElementById("restoreNameBtn"),
+        nameForm: document.getElementById("nameForm"),
+        spinDemoBtn: document.getElementById("spinDemoBtn"),
+        spinPaidBtn: document.getElementById("spinPaidBtn"),
+        openBuyBtn: document.getElementById("openBuyBtn"),
+        wheelStateLabel: document.getElementById("wheelStateLabel"),
+        statusTitle: document.getElementById("statusTitle"),
+        statusSubtitle: document.getElementById("statusSubtitle"),
+        statusTag: document.getElementById("statusTag"),
+        prizeList: document.getElementById("prizeList"),
+        historyList: document.getElementById("historyList"),
+        countrySwitch: document.getElementById("countrySwitch"),
+        qtyMinusBtn: document.getElementById("qtyMinusBtn"),
+        qtyPlusBtn: document.getElementById("qtyPlusBtn"),
+        qtyDisplay: document.getElementById("qtyDisplay"),
+        buyTicketPrice: document.getElementById("buyTicketPrice"),
+        buyCountryLabel: document.getElementById("buyCountryLabel"),
+        buyTotalLabel: document.getElementById("buyTotalLabel"),
+        buyNowBtn: document.getElementById("buyNowBtn"),
+        copyPaymentBtn: document.getElementById("copyPaymentBtn"),
+        toastWrap: document.getElementById("toastWrap"),
+        welcomeModal: document.getElementById("welcomeModal"),
+        welcomeSaveBtn: document.getElementById("welcomeSaveBtn"),
+        welcomeSkipBtn: document.getElementById("welcomeSkipBtn"),
+        resultModal: document.getElementById("resultModal"),
+        resultPrizeName: document.getElementById("resultPrizeName"),
+        resultPrizeValue: document.getElementById("resultPrizeValue"),
+        resultSubtitle: document.getElementById("resultSubtitle"),
+        resultThanksText: document.getElementById("resultThanksText"),
+        resultCloseBtn: document.getElementById("resultCloseBtn"),
+        resultSpinAgainBtn: document.getElementById("resultSpinAgainBtn"),
+        confettiCanvas: document.getElementById("confettiCanvas")
+      };
+
+      const ctx = els.wheelCanvas.getContext("2d");
+      const confettiCtx = els.confettiCanvas.getContext("2d");
+
+      function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+      }
+
+      function normalizeText(value, fallback = "") {
+        const text = String(value ?? "").replace(/\s+/g, " ").trim();
+        return text || fallback;
+      }
+
+      function sanitizeDisplayName(value) {
+        return normalizeText(value, "Jugador").slice(0, 40);
+      }
+
+      function moneyFromUyu(amountUyu, currency = STATE.currency) {
+        const amount = Number(amountUyu || 0);
+        if (currency === "ARS") return `${Math.round(amount * STATE.uyuToArs)} ARS`;
+        return `${Math.round(amount)} UYU`;
+      }
+
+      function ticketLabel(currency = STATE.currency) {
+        return moneyFromUyu(STATE.ticketPriceUyu, currency);
+      }
+
+      function getSelectedPaymentLink() {
+        return STATE.selectedCountry === "AR" ? STATE.mpLinkAr : STATE.mpLinkUy;
+      }
+
+      function countryLabel(country) {
+        return country === "AR" ? "Argentina" : "Uruguay";
+      }
+
+      function totalPriceLabel() {
+        const totalUyu = STATE.ticketPriceUyu * STATE.qty;
+        return moneyFromUyu(totalUyu, STATE.selectedCountry === "AR" ? "ARS" : "UYU");
+      }
+
+      function showToast(title, text = "", type = "info", duration = 2800) {
+        const toast = document.createElement("div");
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `
+          <div class="toast-title">${escapeHtml(title)}</div>
+          ${text ? `<div class="toast-text">${escapeHtml(text)}</div>` : ""}
+        `;
+        els.toastWrap.appendChild(toast);
+
+        window.setTimeout(() => {
+          toast.style.opacity = "0";
+          toast.style.transform = "translateY(-8px) scale(.98)";
+          window.setTimeout(() => toast.remove(), 220);
+        }, duration);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      async function api(url, payload) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        let data = null;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error("Respuesta inválida del servidor.");
         }
-    )
 
-
-@app.get("/wheel")
-def wheel_page():
-    user_id = request.args.get("user_id", "")
-    username = request.args.get("username", "")
-    full_name = request.args.get("full_name", "")
-    currency = normalize_currency(request.args.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
-
-    profile = ensure_user_profile(
-        user_id=user_id,
-        username=username,
-        full_name=full_name,
-        currency=currency,
-        display_name=full_name or username or "Jugador",
-        users_file=USERS_FILE,
-        default_demo_spins=DEMO_SPINS,
-        default_currency=DEFAULT_CURRENCY,
-    )
-
-    return make_response(
-        render_template(
-            "wheel.html",
-            bot_name=BOT_NAME,
-            prizes=json.dumps(VISIBLE_PRIZES, ensure_ascii=False),
-            currency=currency,
-            user_id=user_id,
-            username=username,
-            full_name=full_name,
-            display_name=profile.get("display_name", "Jugador"),
-            fichas=int(profile.get("fichas", 0)),
-            demo_spins_left=int(profile.get("demo_spins_left", 0)),
-            uyu_to_ars=UYU_TO_ARS,
-            ticket_price_uyu=TICKET_PRICE_UYU,
-            mp_link_ar=MP_LINK_AR,
-            mp_link_uy=MP_LINK_UY,
-        )
-    )
-
-
-@app.post("/api/profile")
-def api_profile():
-    data = request.get_json(silent=True) or {}
-    user_id = data.get("user_id")
-    username = data.get("username", "")
-    full_name = data.get("full_name", "")
-    currency = normalize_currency(data.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
-    display_name = sanitize_name(data.get("display_name") or full_name or username or "Jugador")
-
-    key, profile = get_user_profile(user_id, username, full_name, USERS_FILE, DEFAULT_CURRENCY, DEMO_SPINS)
-    profile["display_name"] = display_name
-    profile["currency"] = currency
-    update_user_profile(key, profile, USERS_FILE)
-
-    return jsonify({"ok": True, "profile": profile})
-
-
-@app.post("/api/profile-sync")
-def api_profile_sync():
-    data = request.get_json(silent=True) or {}
-    user_id = data.get("user_id")
-    username = data.get("username", "")
-    full_name = data.get("full_name", "")
-    currency = normalize_currency(data.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
-    display_name = sanitize_name(data.get("display_name") or full_name or username or "Jugador")
-
-    key, profile = get_user_profile(user_id, username, full_name, USERS_FILE, DEFAULT_CURRENCY, DEMO_SPINS)
-    profile["currency"] = currency
-    profile["display_name"] = display_name
-    update_user_profile(key, profile, USERS_FILE)
-
-    return jsonify({"ok": True, "profile": profile})
-
-
-@app.post("/api/create-pending-purchase")
-def api_create_pending_purchase():
-    data = request.get_json(silent=True) or {}
-    user_id = data.get("user_id")
-    username = data.get("username", "")
-    full_name = data.get("full_name", "")
-    display_name = sanitize_name(data.get("display_name") or full_name or username or "Jugador")
-    currency = normalize_currency(data.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
-    country = (data.get("country") or "UY").upper().strip()
-    qty = max(1, int(data.get("qty", 1)))
-
-    ensure_user_profile(
-        user_id=user_id,
-        username=username,
-        full_name=full_name,
-        currency=currency,
-        display_name=display_name,
-        users_file=USERS_FILE,
-        default_demo_spins=DEMO_SPINS,
-        default_currency=DEFAULT_CURRENCY,
-    )
-    item = create_pending_purchase(
-        user_id=user_id,
-        username=username,
-        full_name=full_name,
-        display_name=display_name,
-        country=country,
-        currency=currency,
-        qty=qty,
-        purchases_file=PURCHASES_FILE,
-        default_currency=DEFAULT_CURRENCY,
-    )
-
-    return jsonify(
-        {
-            "ok": True,
-            "purchase_id": item["purchase_id"],
-            "payment_url": get_country_link(country, MP_LINK_AR, MP_LINK_UY),
-            "message": "Compra registrada como pendiente. Luego aprobala desde admin o bot.",
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error || data?.message || "No se pudo completar la acción.");
         }
-    )
 
+        return data;
+      }
 
-@app.post("/api/spin")
-def api_spin():
-    data = request.get_json(silent=True) or {}
+      function currentPayload(extra = {}) {
+        return {
+          user_id: STATE.userId,
+          username: STATE.username,
+          full_name: STATE.fullName,
+          display_name: STATE.displayName,
+          currency: STATE.currency,
+          ...extra
+        };
+      }
 
-    user_id = data.get("user_id")
-    username = data.get("username", "")
-    full_name = data.get("full_name", "")
-    display_name = sanitize_name(data.get("display_name") or full_name or username or "Jugador")
-    currency = normalize_currency(data.get("currency", DEFAULT_CURRENCY), DEFAULT_CURRENCY)
-    mode = (data.get("mode") or "paid").strip().lower()
+      function updateAllCounters() {
+        els.topTokens.textContent = String(STATE.fichas);
+        els.topDemo.textContent = String(STATE.demoSpinsLeft);
+        els.topCurrency.textContent = STATE.currency;
+        els.statTokens.textContent = String(STATE.fichas);
+        els.statDemo.textContent = String(STATE.demoSpinsLeft);
+        els.statCurrency.textContent = STATE.currency;
+        els.statTicket.textContent = ticketLabel();
+        els.buyTicketPrice.textContent = ticketLabel(STATE.selectedCountry === "AR" ? "ARS" : "UYU");
+        els.buyCountryLabel.textContent = countryLabel(STATE.selectedCountry);
+        els.buyTotalLabel.textContent = totalPriceLabel();
+        els.qtyDisplay.textContent = String(STATE.qty);
+      }
 
-    key, profile = get_user_profile(user_id, username, full_name, USERS_FILE, DEFAULT_CURRENCY, DEMO_SPINS)
-    profile["display_name"] = display_name
-    profile["currency"] = currency
+      function updateGreeting() {
+        els.heroGreeting.textContent = `Hola, ${STATE.displayName}`;
+        els.statusTitle.textContent = `Bienvenido/a, ${STATE.displayName}`;
+        els.statusSubtitle.textContent = STATE.demoSpinsLeft > 0
+          ? `Tenés ${STATE.demoSpinsLeft} demo gratis disponible${STATE.demoSpinsLeft > 1 ? "s" : ""}.`
+          : `Tu demo gratis ya fue usada. Comprá fichas o girá con saldo.`;
 
-    fichas = int(profile.get("fichas", 0))
-    demo_left = int(profile.get("demo_spins_left", 0))
-
-    if mode == "demo":
-        if demo_left <= 0:
-            return jsonify({"ok": False, "error": "Ya usaste la tirada demo."}), 400
-        profile["demo_spins_left"] = demo_left - 1
-    else:
-        if fichas <= 0:
-            return jsonify({"ok": False, "error": "No tenés fichas. Comprá una para seguir jugando."}), 400
-        profile["fichas"] = fichas - 1
-
-    prize = pick_weighted_prize(REAL_PRIZES)
-    profile["wins"] = int(profile.get("wins", 0)) + 1
-    profile["last_prize"] = prize["name"]
-    update_user_profile(key, profile, USERS_FILE)
-
-    log_spin(
-        user_id=user_id,
-        username=username,
-        full_name=full_name,
-        display_name=display_name,
-        prize_name=prize["name"],
-        currency=currency,
-        spin_mode=mode,
-        log_file=LOG_FILE,
-    )
-
-    return jsonify(
-        {
-            "ok": True,
-            "prize": {
-                "name": prize["name"],
-                "label": convert_price_from_uyu(int(prize["uyu_price"]), currency, UYU_TO_ARS, DEFAULT_CURRENCY),
-                "chance": prize["chance"],
-            },
-            "ticket": ticket_price_text(currency, TICKET_PRICE_UYU, UYU_TO_ARS, DEFAULT_CURRENCY),
-            "profile": profile,
+        if (STATE.demoSpinsLeft > 0) {
+          els.statusTag.textContent = "🎁 Demo disponible";
+        } else if (STATE.fichas > 0) {
+          els.statusTag.textContent = "🎟 Tenés fichas";
+        } else {
+          els.statusTag.textContent = "💳 Comprá fichas";
         }
-    )
+      }
 
+      function updateButtons() {
+        els.spinDemoBtn.disabled = STATE.spinning || STATE.demoSpinsLeft <= 0;
+        els.spinPaidBtn.disabled = STATE.spinning || STATE.fichas <= 0;
+        els.buyNowBtn.disabled = STATE.spinning;
+        els.copyPaymentBtn.disabled = !getSelectedPaymentLink();
+        els.qtyMinusBtn.disabled = STATE.qty <= 1;
+        els.qtyPlusBtn.disabled = STATE.qty >= STATE.maxPurchaseQty;
+      }
 
-# =========================================================
-# MAIN
-# =========================================================
+      function renderPrizeList() {
+        els.prizeList.innerHTML = "";
 
-def main() -> None:
-    ensure_json_file(LOG_FILE, [])
-    ensure_json_file(USERS_FILE, {})
-    ensure_json_file(PURCHASES_FILE, [])
+        STATE.prizes.forEach((prize) => {
+          const item = document.createElement("div");
+          item.className = "prize-item";
+          item.innerHTML = `
+            <div class="prize-head">
+              <div class="prize-name">${escapeHtml(prize.name)}</div>
+              <div class="prize-badge">${escapeHtml(moneyFromUyu(prize.uyu_price, STATE.currency))}</div>
+            </div>
+            <div class="prize-meta">
+              Probabilidad visible: ${escapeHtml(String(prize.chance))}% · Premio premium
+            </div>
+          `;
+          els.prizeList.appendChild(item);
+        });
+      }
 
-    if RUN_TELEGRAM_BOT:
-        start_bot_background_once()
+      function renderHistory() {
+        els.historyList.innerHTML = "";
 
-    logger.info("%s web iniciada en http://127.0.0.1:%s", BOT_NAME, WEB_PORT)
-    app.run(host="0.0.0.0", port=WEB_PORT, debug=False)
+        if (!STATE.history.length) {
+          els.historyList.innerHTML = `
+            <div class="history-item">
+              <div class="history-head">
+                <div class="history-name">Todavía no giraste</div>
+                <div class="history-badge">Listo</div>
+              </div>
+              <div class="history-meta">
+                Cuando hagas tu primer giro, tu historial aparecerá acá.
+              </div>
+            </div>
+          `;
+          return;
+        }
 
+        STATE.history.slice(0, 6).forEach((entry) => {
+          const item = document.createElement("div");
+          item.className = "history-item";
+          item.innerHTML = `
+            <div class="history-head">
+              <div class="history-name">${escapeHtml(entry.prizeName)}</div>
+              <div class="history-badge">${escapeHtml(entry.mode === "demo" ? "Demo" : "Ficha")}</div>
+            </div>
+            <div class="history-meta">
+              ${escapeHtml(entry.displayValue)} · ${escapeHtml(entry.timeLabel)}
+            </div>
+          `;
+          els.historyList.appendChild(item);
+        });
+      }
 
-if __name__ == "__main__":
-    main()
+      function nowTimeLabel() {
+        const d = new Date();
+        return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+
+      function resizeCanvases() {
+        const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+        const wheelRect = els.wheelCanvas.getBoundingClientRect();
+        const wheelSize = Math.max(400, Math.round(Math.max(wheelRect.width, wheelRect.height)));
+        els.wheelCanvas.width = Math.round(wheelSize * dpr);
+        els.wheelCanvas.height = Math.round(wheelSize * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const confettiRect = { width: window.innerWidth, height: window.innerHeight };
+        els.confettiCanvas.width = Math.round(confettiRect.width * dpr);
+        els.confettiCanvas.height = Math.round(confettiRect.height * dpr);
+        confettiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        drawWheel(STATE.rotationDeg);
+      }
+
+      function segmentPalette(index) {
+        const palettes = [
+          ["#ffeb9a", "#ffb52b"],
+          ["#ff9cc4", "#ff2f8f"],
+          ["#c49bff", "#7c4dff"],
+          ["#aef7ff", "#16d6ef"],
+          ["#ffe1a3", "#ff985b"],
+          ["#ffc3d9", "#d91d6d"],
+          ["#e2d0ff", "#9a68ff"],
+          ["#c7fff1", "#38dfb2"]
+        ];
+        return palettes[index % palettes.length];
+      }
+
+      function drawWheel(rotationDeg = 0) {
+        const rect = els.wheelCanvas.getBoundingClientRect();
+        const size = Math.max(320, rect.width);
+        const center = size / 2;
+        const radius = size / 2 - 10;
+        const innerRadius = radius * 0.18;
+        const prizes = STATE.prizes.length ? STATE.prizes : [{ name: "Premio", uyu_price: 0, chance: 100 }];
+        const slice = (Math.PI * 2) / prizes.length;
+
+        ctx.clearRect(0, 0, size, size);
+        ctx.save();
+        ctx.translate(center, center);
+        ctx.rotate((rotationDeg * Math.PI) / 180);
+
+        for (let i = 0; i < prizes.length; i++) {
+          const start = -Math.PI / 2 + i * slice;
+          const end = start + slice;
+          const [color1, color2] = segmentPalette(i);
+
+          const grad = ctx.createLinearGradient(
+            Math.cos(start) * radius,
+            Math.sin(start) * radius,
+            Math.cos(end) * radius,
+            Math.sin(end) * radius
+          );
+          grad.addColorStop(0, color1);
+          grad.addColorStop(1, color2);
+
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, radius, start, end, false);
+          ctx.closePath();
+          ctx.fillStyle = grad;
+          ctx.fill();
+
+          ctx.lineWidth = Math.max(2, size * 0.0035);
+          ctx.strokeStyle = "rgba(255,255,255,.22)";
+          ctx.stroke();
+
+          ctx.save();
+          const angle = start + slice / 2;
+          ctx.rotate(angle);
+          ctx.translate(radius * 0.66, 0);
+
+          const maxWidth = radius * 0.42;
+          const label = prizes[i].name;
+          const price = moneyFromUyu(prizes[i].uyu_price, STATE.currency);
+
+          ctx.rotate(Math.PI / 2);
+
+          const fontSize = Math.max(16, Math.min(30, size * 0.037));
+          const subFontSize = Math.max(12, Math.min(18, size * 0.022));
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#fffef8";
+          ctx.strokeStyle = "rgba(12,4,9,.72)";
+          ctx.lineWidth = Math.max(5, size * 0.006);
+
+          const lines = wrapText(ctx, label, maxWidth, fontSize, 2);
+          const blockHeight = lines.length * (fontSize * 1.06) + subFontSize * 1.55;
+          let y = -(blockHeight / 2) + fontSize * 0.36;
+
+          lines.forEach((line) => {
+            ctx.font = `1000 ${fontSize}px Inter, Arial, sans-serif`;
+            ctx.strokeText(line, 0, y);
+            ctx.fillText(line, 0, y);
+            y += fontSize * 1.06;
+          });
+
+          ctx.font = `900 ${subFontSize}px Inter, Arial, sans-serif`;
+          ctx.strokeText(price, 0, y + subFontSize * 0.42);
+          ctx.fillStyle = "#fff5d2";
+          ctx.fillText(price, 0, y + subFontSize * 0.42);
+
+          ctx.restore();
+        }
+
+        ctx.beginPath();
+        ctx.arc(0, 0, innerRadius, 0, Math.PI * 2);
+        const centerGrad = ctx.createRadialGradient(-innerRadius * 0.2, -innerRadius * 0.2, 1, 0, 0, innerRadius);
+        centerGrad.addColorStop(0, "rgba(255,255,255,.55)");
+        centerGrad.addColorStop(0.22, "#fff0c2");
+        centerGrad.addColorStop(0.7, "#ffcc5b");
+        centerGrad.addColorStop(1, "#ad6207");
+        ctx.fillStyle = centerGrad;
+        ctx.fill();
+        ctx.lineWidth = Math.max(3, size * 0.004);
+        ctx.strokeStyle = "rgba(255,255,255,.4)";
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
+      function wrapText(context, text, maxWidth, fontSize, maxLines = 2) {
+        context.font = `1000 ${fontSize}px Inter, Arial, sans-serif`;
+        const words = String(text).split(/\s+/).filter(Boolean);
+        if (!words.length) return [""];
+
+        const lines = [];
+        let current = words[0];
+
+        for (let i = 1; i < words.length; i++) {
+          const trial = `${current} ${words[i]}`;
+          if (context.measureText(trial).width <= maxWidth) {
+            current = trial;
+          } else {
+            lines.push(current);
+            current = words[i];
+          }
+        }
+        lines.push(current);
+
+        if (lines.length <= maxLines) return lines;
+
+        const trimmed = lines.slice(0, maxLines);
+        while (context.measureText(trimmed[maxLines - 1] + "…").width > maxWidth && trimmed[maxLines - 1].length > 1) {
+          trimmed[maxLines - 1] = trimmed[maxLines - 1].slice(0, -1);
+        }
+        trimmed[maxLines - 1] += "…";
+        return trimmed;
+      }
+
+      function setWheelRotation(deg) {
+        STATE.rotationDeg = deg;
+        drawWheel(deg);
+      }
+
+      function prizeIndexByName(name) {
+        return STATE.prizes.findIndex((p) => p.name === name);
+      }
+
+      async function animateSpinToPrize(prizeName) {
+        const index = prizeIndexByName(prizeName);
+        const total = Math.max(1, STATE.prizes.length);
+        const slice = 360 / total;
+        const current = ((STATE.rotationDeg % 360) + 360) % 360;
+        const targetCenter = index >= 0 ? (index * slice + slice / 2) : slice / 2;
+        const pointerAngle = 0;
+        const adjustment = (360 - targetCenter + pointerAngle) % 360;
+        const extraTurns = 360 * (6 + Math.floor(Math.random() * 2));
+        const finalDeg = STATE.rotationDeg + extraTurns + adjustment - current + (Math.random() * 6 - 3);
+
+        const start = performance.now();
+        const duration = 5600 + Math.random() * 400;
+        const initial = STATE.rotationDeg;
+
+        STATE.spinning = true;
+        updateButtons();
+        els.wheelStateLabel.textContent = "Girando...";
+        els.statusTag.textContent = "🎰 Girando";
+        els.wheelRig.classList.remove("idle");
+
+        return new Promise((resolve) => {
+          function frame(now) {
+            const t = clamp((now - start) / duration, 0, 1);
+            const eased = 1 - Math.pow(1 - t, 4);
+            const currentDeg = initial + (finalDeg - initial) * eased;
+            setWheelRotation(currentDeg);
+
+            const tilt = 10 + Math.sin(t * Math.PI * 6) * (1 - t) * 3.5;
+            els.wheelCanvas.style.transform = `rotateX(${tilt}deg)`;
+
+            if (t < 1) {
+              requestAnimationFrame(frame);
+            } else {
+              setWheelRotation(finalDeg);
+              els.wheelCanvas.style.transform = "rotateX(10deg)";
+              STATE.spinning = false;
+              updateButtons();
+              els.wheelStateLabel.textContent = "Lista para girar";
+              els.statusTag.textContent = STATE.demoSpinsLeft > 0 ? "🎁 Demo disponible" : (STATE.fichas > 0 ? "🎟 Tenés fichas" : "💳 Comprá fichas");
+              resolve();
+            }
+          }
+          requestAnimationFrame(frame);
+        });
+      }
+
+      async function saveDisplayName(name) {
+        const clean = sanitizeDisplayName(name);
+        STATE.displayName = clean;
+        els.playerNameInput.value = clean;
+        els.welcomeNameInput.value = clean;
+
+        const data = await api("/api/profile", currentPayload({ display_name: clean }));
+        if (data?.profile) {
+          STATE.displayName = sanitizeDisplayName(data.profile.display_name || clean);
+        }
+
+        updateGreeting();
+        showToast("Nombre guardado", `Ahora jugás como ${STATE.displayName}.`, "success");
+      }
+
+      function closeModal(modal) {
+        modal.classList.remove("show");
+      }
+
+      function openModal(modal) {
+        modal.classList.add("show");
+      }
+
+      function maybeOpenWelcome() {
+        if (STATE.hasShownWelcome) return;
+        const key = `wheel-welcome-shown-${STATE.userId || "guest"}`;
+        const stored = window.localStorage.getItem(key);
+
+        if (!stored) {
+          openModal(els.welcomeModal);
+          STATE.hasShownWelcome = true;
+          window.localStorage.setItem(key, "1");
+        }
+      }
+
+      function addHistory(prizeName, displayValue, mode) {
+        STATE.history.unshift({
+          prizeName,
+          displayValue,
+          mode,
+          timeLabel: nowTimeLabel()
+        });
+        renderHistory();
+      }
+
+      function updateStateFromProfile(profile) {
+        if (!profile) return;
+        STATE.fichas = Number(profile.fichas ?? STATE.fichas);
+        STATE.demoSpinsLeft = Number(profile.demo_spins_left ?? STATE.demoSpinsLeft);
+        STATE.displayName = sanitizeDisplayName(profile.display_name || STATE.displayName);
+        updateAllCounters();
+        updateGreeting();
+        updateButtons();
+        els.playerNameInput.value = STATE.displayName;
+        els.welcomeNameInput.value = STATE.displayName;
+      }
+
+      async function handleSpin(mode) {
+        if (STATE.spinning) return;
+        if (!STATE.userId) {
+          showToast("Falta user_id", "Abrí la ruleta desde Telegram para identificar al jugador.", "error");
+          return;
+        }
+
+        try {
+          const data = await api("/api/spin", currentPayload({ mode }));
+          const prizeName = data?.prize?.name || "Premio";
+          const prizeValue = data?.prize?.label || "";
+          const thanks = data?.messages?.thanks || `Gracias por jugar en ${STATE.botName}`;
+          const resultText = data?.messages?.result || `${STATE.displayName}, tu premio es ${prizeName}`;
+          const subtitle = data?.messages?.subtitle || prizeValue;
+
+          await animateSpinToPrize(prizeName);
+
+          updateStateFromProfile(data.profile);
+          addHistory(prizeName, prizeValue, mode);
+          els.statusTitle.textContent = resultText;
+          els.statusSubtitle.textContent = thanks;
+          els.resultPrizeName.textContent = prizeName;
+          els.resultPrizeValue.textContent = subtitle || prizeValue;
+          els.resultSubtitle.textContent = resultText;
+          els.resultThanksText.textContent = thanks;
+
+          if (data?.fx?.enable_3d_flash) {
+            els.wheelRig.classList.add("is-flashing");
+            window.setTimeout(() => els.wheelRig.classList.remove("is-flashing"), 1200);
+          }
+
+          if (data?.fx?.confetti) {
+            launchConfetti();
+          }
+
+          if (data?.fx?.show_result_modal) {
+            openModal(els.resultModal);
+          }
+
+          showToast("¡Giro completado!", `${STATE.displayName}, tu premio fue ${prizeName}.`, "success", 3600);
+        } catch (error) {
+          STATE.spinning = false;
+          updateButtons();
+          els.wheelStateLabel.textContent = "Lista para girar";
+          showToast("No se pudo girar", error.message || "Ocurrió un error.", "error", 3600);
+        }
+      }
+
+      async function handlePurchase() {
+        if (!STATE.userId) {
+          showToast("Falta user_id", "Abrí la ruleta desde Telegram para identificar al jugador.", "error");
+          return;
+        }
+
+        try {
+          const data = await api("/api/create-pending-purchase", currentPayload({
+            country: STATE.selectedCountry,
+            qty: STATE.qty
+          }));
+
+          const paymentUrl = String(data.payment_url || getSelectedPaymentLink() || "").trim();
+          showToast("Compra registrada", `ID: ${data.purchase_id}. Ahora completá el pago.`, "success", 4200);
+
+          if (paymentUrl) {
+            window.open(paymentUrl, "_blank", "noopener,noreferrer");
+          }
+
+          els.statusTitle.textContent = `Compra pendiente creada`;
+          els.statusSubtitle.textContent = `ID ${data.purchase_id}. Luego aprobala desde Telegram con /aprobarcompra ${data.purchase_id}`;
+          els.statusTag.textContent = "🧾 Pendiente";
+        } catch (error) {
+          showToast("No se pudo registrar la compra", error.message || "Error inesperado.", "error", 3800);
+        }
+      }
+
+      async function copyPaymentLink() {
+        const url = getSelectedPaymentLink();
+        if (!url) {
+          showToast("Sin link", "No hay link de pago configurado para este país.", "error");
+          return;
+        }
+
+        try {
+          await navigator.clipboard.writeText(url);
+          showToast("Link copiado", "El link de pago quedó copiado al portapapeles.", "success");
+        } catch {
+          showToast("No se pudo copiar", "Copialo manualmente desde el botón de compra.", "error");
+        }
+      }
+
+      function setCountry(country) {
+        STATE.selectedCountry = country === "AR" ? "AR" : "UY";
+        [...els.countrySwitch.querySelectorAll(".chip")].forEach((chip) => {
+          chip.classList.toggle("active", chip.dataset.country === STATE.selectedCountry);
+        });
+        updateAllCounters();
+        updateButtons();
+      }
+
+      function changeQty(delta) {
+        STATE.qty = clamp(STATE.qty + delta, 1, STATE.maxPurchaseQty);
+        updateAllCounters();
+        updateButtons();
+      }
+
+      function bindEvents() {
+        window.addEventListener("resize", resizeCanvases, { passive: true });
+
+        els.nameForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          try {
+            await saveDisplayName(els.playerNameInput.value);
+          } catch (error) {
+            showToast("No se pudo guardar", error.message || "Error inesperado.", "error");
+          }
+        });
+
+        els.restoreNameBtn.addEventListener("click", () => {
+          const restored = sanitizeDisplayName(STATE.fullName || STATE.username || "Jugador");
+          els.playerNameInput.value = restored;
+          showToast("Nombre restaurado", "Podés guardarlo si querés usarlo.", "info");
+        });
+
+        els.spinDemoBtn.addEventListener("click", () => handleSpin("demo"));
+        els.spinPaidBtn.addEventListener("click", () => handleSpin("paid"));
+        els.openBuyBtn.addEventListener("click", () => {
+          document.querySelector(".right-col")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+
+        els.qtyMinusBtn.addEventListener("click", () => changeQty(-1));
+        els.qtyPlusBtn.addEventListener("click", () => changeQty(1));
+        els.buyNowBtn.addEventListener("click", handlePurchase);
+        els.copyPaymentBtn.addEventListener("click", copyPaymentLink);
+
+        els.countrySwitch.addEventListener("click", (event) => {
+          const btn = event.target.closest(".chip");
+          if (!btn) return;
+          setCountry(btn.dataset.country || "UY");
+        });
+
+        els.welcomeSaveBtn.addEventListener("click", async () => {
+          try {
+            await saveDisplayName(els.welcomeNameInput.value);
+            closeModal(els.welcomeModal);
+          } catch (error) {
+            showToast("No se pudo guardar", error.message || "Error inesperado.", "error");
+          }
+        });
+
+        els.welcomeSkipBtn.addEventListener("click", () => {
+          const clean = sanitizeDisplayName(els.welcomeNameInput.value || STATE.displayName);
+          STATE.displayName = clean;
+          els.playerNameInput.value = clean;
+          updateGreeting();
+          closeModal(els.welcomeModal);
+        });
+
+        els.resultCloseBtn.addEventListener("click", () => closeModal(els.resultModal));
+        els.resultSpinAgainBtn.addEventListener("click", () => closeModal(els.resultModal));
+
+        [els.welcomeModal, els.resultModal].forEach((modal) => {
+          modal.addEventListener("click", (event) => {
+            if (event.target === modal) closeModal(modal);
+          });
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            closeModal(els.welcomeModal);
+            closeModal(els.resultModal);
+          }
+        });
+      }
+
+      function initConfettiCanvas() {
+        resizeCanvases();
+      }
+
+      let confettiPieces = [];
+      let confettiFrame = null;
+
+      function randomBetween(min, max) {
+        return Math.random() * (max - min) + min;
+      }
+
+      function launchConfetti() {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const colors = ["#ffd86a", "#ff4d95", "#7e54ff", "#79f0ff", "#fff2c9", "#43f2a6"];
+
+        confettiPieces = Array.from({ length: 160 }, () => ({
+          x: width / 2 + randomBetween(-40, 40),
+          y: height * 0.24 + randomBetween(-20, 20),
+          vx: randomBetween(-7.2, 7.2),
+          vy: randomBetween(-13, -4.5),
+          size: randomBetween(5, 11),
+          color: colors[Math.floor(Math.random() * colors.length)],
+          rot: randomBetween(0, Math.PI * 2),
+          vr: randomBetween(-0.18, 0.18),
+          life: randomBetween(64, 110),
+          gravity: randomBetween(0.17, 0.28),
+          drag: randomBetween(0.992, 0.997)
+        }));
+
+        if (confettiFrame) cancelAnimationFrame(confettiFrame);
+
+        function tick() {
+          const width = window.innerWidth;
+          const height = window.innerHeight;
+          confettiCtx.clearRect(0, 0, width, height);
+
+          confettiPieces.forEach((p) => {
+            p.vx *= p.drag;
+            p.vy += p.gravity;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.rot += p.vr;
+            p.life -= 1;
+
+            confettiCtx.save();
+            confettiCtx.translate(p.x, p.y);
+            confettiCtx.rotate(p.rot);
+            confettiCtx.globalAlpha = Math.max(0, Math.min(1, p.life / 100));
+            confettiCtx.fillStyle = p.color;
+            confettiCtx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.66);
+            confettiCtx.restore();
+          });
+
+          confettiPieces = confettiPieces.filter((p) => p.life > 0 && p.y < height + 40);
+
+          if (confettiPieces.length) {
+            confettiFrame = requestAnimationFrame(tick);
+          } else {
+            confettiCtx.clearRect(0, 0, width, height);
+            confettiFrame = null;
+          }
+        }
+
+        tick();
+      }
+
+      function init() {
+        STATE.displayName = sanitizeDisplayName(STATE.displayName);
+        els.playerNameInput.value = STATE.displayName;
+        els.welcomeNameInput.value = STATE.displayName;
+
+        renderPrizeList();
+        renderHistory();
+        updateAllCounters();
+        updateGreeting();
+        updateButtons();
+        setCountry("UY");
+        bindEvents();
+        initConfettiCanvas();
+        maybeOpenWelcome();
+
+        showToast("Todo listo", "La ruleta premium está preparada para jugar.", "info", 2200);
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>

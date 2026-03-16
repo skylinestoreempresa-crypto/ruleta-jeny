@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es" dir="ltr">
+<html lang="{{ language|default('es', true) }}" dir="ltr">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="x-ua-compatible" content="ie=edge">
@@ -8,6 +8,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="format-detection" content="telephone=no, email=no, address=no">
   <title>{{ bot_name|default('Ruleta Premium', true)|e }}</title>
+
   <style>
     :root{
       --bg-0:#070106;
@@ -16,60 +17,76 @@
       --bg-3:#280718;
       --bg-4:#381129;
       --bg-5:#4d1734;
-      --gold-1:#fff6d8;
+
+      --gold-1:#fff7dd;
       --gold-2:#ffe8a1;
       --gold-3:#ffd765;
       --gold-4:#ffbe3c;
       --gold-5:#e19014;
       --gold-6:#8a4f03;
-      --rose-1:#ffb3d1;
-      --rose-2:#ff74ae;
-      --rose-3:#ff3c8f;
+
+      --rose-1:#ffbfd8;
+      --rose-2:#ff7cb0;
+      --rose-3:#ff3f92;
       --rose-4:#d91d6d;
-      --violet-1:#d6bbff;
+
+      --violet-1:#d9c2ff;
       --violet-2:#ab7fff;
       --violet-3:#7547ff;
-      --cyan-1:#baf7ff;
-      --cyan-2:#6beaff;
+
+      --cyan-1:#c3fbff;
+      --cyan-2:#74efff;
       --cyan-3:#13cfe5;
-      --text-1:#fff8fc;
-      --text-2:#f4dbe6;
-      --text-3:#cba8b8;
+
+      --green-1:#bfffe1;
+      --green-2:#43f2a6;
+
+      --text-1:#fff9fc;
+      --text-2:#f3dce7;
+      --text-3:#c9a8b8;
+      --text-4:#8f7180;
+
+      --line-1:rgba(255,255,255,.10);
+      --line-2:rgba(255,255,255,.07);
+
       --success:#43f2a6;
       --danger:#ff6d7f;
       --warning:#ffd56f;
-      --shadow-soft:0 12px 38px rgba(0,0,0,.32);
-      --shadow-strong:0 24px 60px rgba(0,0,0,.45);
-      --ring:0 0 0 1px rgba(255,255,255,.08), 0 10px 30px rgba(0,0,0,.35);
-      --glass:linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.05));
-      --glass-2:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
+
+      --shadow-soft:0 12px 34px rgba(0,0,0,.28);
+      --shadow-md:0 18px 42px rgba(0,0,0,.34);
+      --shadow-strong:0 26px 64px rgba(0,0,0,.44);
+
       --radius-xl:26px;
-      --radius-lg:20px;
-      --radius-md:16px;
-      --radius-sm:12px;
+      --radius-lg:22px;
+      --radius-md:18px;
+      --radius-sm:14px;
+
       --safe-top:env(safe-area-inset-top, 0px);
       --safe-bottom:env(safe-area-inset-bottom, 0px);
-      --header-h:76px;
-      --wheel-size:min(72vw, 620px);
-      --wheel-glow:0 0 0 2px rgba(255,216,100,.2), 0 0 42px rgba(255,73,152,.22), 0 0 90px rgba(117,71,255,.12);
+
+      --header-h:78px;
+      --wheel-size:min(74vw, 620px);
+      --wheel-shadow:
+        0 0 0 2px rgba(255,215,101,.18),
+        0 0 34px rgba(255,62,145,.20),
+        0 0 80px rgba(117,71,255,.14);
       --txt-shadow:
-        0 2px 10px rgba(0,0,0,.78),
-        0 1px 0 rgba(0,0,0,.9),
-        0 0 24px rgba(0,0,0,.18);
+        0 2px 10px rgba(0,0,0,.74),
+        0 1px 0 rgba(0,0,0,.94);
     }
 
     *{box-sizing:border-box}
     *::before,*::after{box-sizing:border-box}
 
     html,body{
-      min-height:100%;
       margin:0;
-      padding:0;
+      min-height:100%;
       background:
-        radial-gradient(circle at 15% 10%, rgba(255,111,170,.18), transparent 22%),
-        radial-gradient(circle at 82% 18%, rgba(111,239,255,.12), transparent 22%),
-        radial-gradient(circle at 50% 55%, rgba(163,86,255,.12), transparent 28%),
-        linear-gradient(180deg, var(--bg-0), var(--bg-2) 32%, var(--bg-1) 55%, #060105 100%);
+        radial-gradient(circle at 14% 12%, rgba(255,110,170,.18), transparent 22%),
+        radial-gradient(circle at 86% 18%, rgba(115,237,255,.14), transparent 22%),
+        radial-gradient(circle at 50% 50%, rgba(160,86,255,.10), transparent 30%),
+        linear-gradient(180deg, var(--bg-0), var(--bg-2) 34%, var(--bg-1) 58%, #050104 100%);
       color:var(--text-1);
       font-family:Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       -webkit-text-size-adjust:100%;
@@ -83,17 +100,15 @@
       inset:0;
       pointer-events:none;
       background:
-        radial-gradient(circle at center, transparent 35%, rgba(0,0,0,.28) 100%),
+        radial-gradient(circle at center, transparent 38%, rgba(0,0,0,.26) 100%),
         linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));
-      mix-blend-mode:screen;
-      opacity:.8;
       z-index:0;
     }
 
     body::after{
       content:"";
       position:fixed;
-      inset:-20%;
+      inset:-15%;
       pointer-events:none;
       background:
         repeating-linear-gradient(
@@ -101,41 +116,40 @@
           rgba(255,255,255,.015) 0 2px,
           transparent 2px 16px
         );
-      opacity:.22;
+      opacity:.18;
       z-index:0;
-      transform:translateZ(0);
     }
 
     a{color:inherit;text-decoration:none}
-    button,input,select{font:inherit}
-    img,canvas{display:block;max-width:100%}
+    button,input{font:inherit}
+    canvas,img{display:block;max-width:100%}
 
-    .app-shell{
+    .app{
       position:relative;
       z-index:1;
       min-height:100vh;
+      padding:calc(var(--safe-top) + 14px) 14px calc(var(--safe-bottom) + 22px);
       display:flex;
       flex-direction:column;
-      padding:calc(var(--safe-top) + 14px) 14px calc(var(--safe-bottom) + 22px);
+      gap:16px;
     }
 
     .topbar{
       position:sticky;
       top:0;
       z-index:40;
+      min-height:var(--header-h);
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:14px;
-      min-height:var(--header-h);
       padding:14px 18px;
       border-radius:24px;
       background:
-        linear-gradient(180deg, rgba(22,7,18,.88), rgba(12,4,10,.78));
+        linear-gradient(180deg, rgba(22,7,18,.90), rgba(12,4,10,.82));
       backdrop-filter:blur(20px) saturate(140%);
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
       box-shadow:var(--shadow-soft);
-      margin-bottom:16px;
     }
 
     .brand{
@@ -145,46 +159,49 @@
       min-width:0;
     }
 
-    .brand-badge{
+    .brand-icon{
       width:48px;
       height:48px;
       border-radius:16px;
       display:grid;
       place-items:center;
       font-size:24px;
+      color:#2b0d1b;
       background:
-        radial-gradient(circle at 30% 25%, #fff4c0, transparent 25%),
-        linear-gradient(135deg, rgba(255,215,101,.95), rgba(255,61,145,.95) 55%, rgba(117,71,255,.95));
+        radial-gradient(circle at 30% 25%, #fff5ca, transparent 25%),
+        linear-gradient(135deg, rgba(255,215,101,.96), rgba(255,61,145,.95) 55%, rgba(117,71,255,.95));
       box-shadow:
         inset 0 1px 1px rgba(255,255,255,.45),
         0 12px 24px rgba(0,0,0,.28),
-        0 0 22px rgba(255,90,155,.28);
-      color:#2b0d1b;
+        0 0 22px rgba(255,90,155,.20);
       flex:none;
     }
 
-    .brand-copy{min-width:0}
+    .brand-copy{
+      min-width:0;
+    }
+
     .eyebrow{
       font-size:12px;
+      line-height:1;
       text-transform:uppercase;
       letter-spacing:.18em;
       color:var(--gold-2);
-      font-weight:800;
-      opacity:.95;
+      font-weight:900;
     }
 
     .brand-title{
-      font-size:clamp(18px, 2.1vw, 28px);
+      margin-top:4px;
+      font-size:clamp(18px, 2vw, 28px);
       line-height:1.05;
-      margin:2px 0 0;
-      font-weight:900;
+      font-weight:1000;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
       text-shadow:var(--txt-shadow);
     }
 
-    .top-actions{
+    .top-stats{
       display:flex;
       align-items:center;
       gap:10px;
@@ -199,37 +216,36 @@
       min-height:42px;
       padding:10px 14px;
       border-radius:999px;
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
       background:rgba(255,255,255,.06);
       box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+      font-weight:800;
       color:var(--text-2);
-      font-weight:700;
       white-space:nowrap;
     }
 
     .pill strong{
       color:#fff;
-      font-weight:900;
+      font-weight:1000;
       text-shadow:var(--txt-shadow);
     }
 
-    .grid{
+    .layout{
       display:grid;
-      grid-template-columns:380px minmax(0,1fr) 320px;
+      grid-template-columns:380px minmax(0,1fr) 330px;
       gap:18px;
       align-items:start;
     }
 
     .card{
       position:relative;
+      overflow:hidden;
       border-radius:var(--radius-xl);
       background:
-        linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.035)),
-        linear-gradient(180deg, rgba(18,7,14,.88), rgba(11,4,9,.82));
-      border:1px solid rgba(255,255,255,.08);
+        linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.035)),
+        linear-gradient(180deg, rgba(18,7,14,.90), rgba(11,4,9,.84));
+      border:1px solid var(--line-1);
       box-shadow:var(--shadow-soft);
-      overflow:hidden;
-      isolation:isolate;
     }
 
     .card::before{
@@ -237,73 +253,72 @@
       position:absolute;
       inset:0 0 auto 0;
       height:1px;
-      background:linear-gradient(90deg, transparent, rgba(255,255,255,.42), transparent);
-      opacity:.5;
+      background:linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
+      opacity:.65;
     }
 
     .panel{
       padding:18px;
     }
 
-    .section-title{
+    .section-head{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:12px;
-      margin:0 0 14px;
+      margin-bottom:14px;
     }
 
-    .section-title h2{
+    .section-head h2{
       margin:0;
       font-size:clamp(18px, 1.8vw, 24px);
-      line-height:1.1;
-      font-weight:900;
+      line-height:1.05;
+      font-weight:1000;
       text-shadow:var(--txt-shadow);
     }
 
-    .section-title small{
+    .section-head small{
       color:var(--text-3);
       font-weight:700;
     }
 
-    .hero-card{
+    .hero{
       display:flex;
       flex-direction:column;
       gap:14px;
-      min-height:calc(100vh - 160px);
+      min-height:calc(100vh - 164px);
     }
 
-    .welcome-banner{
-      position:relative;
+    .hero-banner{
       padding:18px;
       border-radius:22px;
       background:
         radial-gradient(circle at top left, rgba(255,224,119,.22), transparent 24%),
         radial-gradient(circle at bottom right, rgba(255,75,145,.18), transparent 24%),
         linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
       box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
     }
 
-    .welcome-banner h1{
+    .hero-banner h1{
       margin:0;
-      font-size:clamp(26px, 3vw, 40px);
+      font-size:clamp(28px, 3vw, 42px);
       line-height:1.02;
       font-weight:1000;
       letter-spacing:-.03em;
       text-shadow:var(--txt-shadow);
     }
 
-    .welcome-banner p{
+    .hero-banner p{
       margin:10px 0 0;
       color:var(--text-2);
       font-size:15px;
-      line-height:1.55;
+      line-height:1.58;
     }
 
     .stats-grid{
       display:grid;
-      grid-template-columns:repeat(2, minmax(0,1fr));
+      grid-template-columns:repeat(2,minmax(0,1fr));
       gap:12px;
     }
 
@@ -312,7 +327,7 @@
       border-radius:20px;
       background:
         linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
       box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
       min-height:102px;
     }
@@ -327,7 +342,7 @@
 
     .stat-value{
       margin-top:8px;
-      font-size:clamp(22px, 2.6vw, 34px);
+      font-size:clamp(22px, 2.5vw, 34px);
       line-height:1;
       font-weight:1000;
       color:#fff;
@@ -342,78 +357,347 @@
       line-height:1.45;
     }
 
-    .name-form{
+    .info-list{
+      display:grid;
+      gap:10px;
+    }
+
+    .info-item{
+      padding:14px;
+      border-radius:18px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
+      border:1px solid var(--line-1);
+    }
+
+    .info-item strong{
+      display:block;
+      font-size:14px;
+      color:#fff;
+      margin-bottom:4px;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .info-item span{
+      display:block;
+      color:var(--text-2);
+      font-size:13px;
+      line-height:1.55;
+    }
+
+    .hint{
+      font-size:13px;
+      line-height:1.55;
+      color:var(--text-2);
+    }
+
+    .tiny{
+      font-size:12px;
+      line-height:1.45;
+      color:var(--text-3);
+    }
+
+    .wheel-card{
+      min-height:calc(100vh - 164px);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      padding:20px 20px 24px;
+      overflow:visible;
+    }
+
+    .wheel-top{
+      width:100%;
+      max-width:720px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:10px;
+    }
+
+    .wheel-top h2{
+      margin:0;
+      font-size:clamp(20px, 2vw, 28px);
+      line-height:1.05;
+      font-weight:1000;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .wheel-top small{
+      color:var(--text-3);
+      font-weight:700;
+      text-align:right;
+    }
+
+    .wheel-stage{
+      position:relative;
+      width:100%;
+      display:grid;
+      place-items:center;
+      padding:8px 0 18px;
+      perspective:1600px;
+    }
+
+    .wheel-rig{
+      position:relative;
+      width:var(--wheel-size);
+      height:var(--wheel-size);
+      max-width:100%;
+      transform-style:preserve-3d;
+      filter:drop-shadow(0 22px 42px rgba(0,0,0,.34));
+    }
+
+    .wheel-rig.idle{
+      animation:pulseGlow 3.2s ease-in-out infinite;
+    }
+
+    @keyframes pulseGlow{
+      0%,100%{box-shadow:var(--wheel-shadow)}
+      50%{box-shadow:0 0 0 2px rgba(255,216,100,.22), 0 0 50px rgba(255,60,143,.22), 0 0 96px rgba(117,71,255,.16)}
+    }
+
+    .wheel-rig.flash{
+      animation:flashRig .8s ease 0s 2;
+    }
+
+    @keyframes flashRig{
+      0%,100%{filter:drop-shadow(0 22px 42px rgba(0,0,0,.34))}
+      50%{filter:drop-shadow(0 20px 42px rgba(255,216,100,.42)) drop-shadow(0 0 40px rgba(255,60,143,.28))}
+    }
+
+    .wheel-pointer{
+      position:absolute;
+      top:-8px;
+      left:50%;
+      transform:translateX(-50%);
+      z-index:7;
+      display:grid;
+      place-items:center;
+      pointer-events:none;
+    }
+
+    .pointer-disc{
+      width:116px;
+      height:116px;
+      border-radius:999px;
+      display:grid;
+      place-items:center;
+      background:
+        radial-gradient(circle at 35% 30%, rgba(255,255,255,.88), transparent 18%),
+        linear-gradient(180deg, #fff9df, #ffd86a 55%, #ffb530 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.75),
+        0 10px 24px rgba(0,0,0,.34),
+        0 0 24px rgba(255,214,101,.18);
+      border:2px solid rgba(255,255,255,.45);
+      position:relative;
+    }
+
+    .pointer-disc::after{
+      content:"";
+      position:absolute;
+      width:0;
+      height:0;
+      border-left:18px solid transparent;
+      border-right:18px solid transparent;
+      border-top:40px solid #ffd86a;
+      bottom:-26px;
+      filter:drop-shadow(0 6px 8px rgba(0,0,0,.26));
+    }
+
+    .pointer-core{
+      width:34px;
+      height:34px;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 30% 28%, rgba(255,255,255,.95), transparent 20%),
+        linear-gradient(180deg, #ffeff6, #ff8cb6 45%, #ff2e8b 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.6),
+        0 8px 14px rgba(0,0,0,.25);
+    }
+
+    .wheel-shadow-floor{
+      position:absolute;
+      inset:auto 10% -5% 10%;
+      height:18%;
+      border-radius:999px;
+      background:radial-gradient(ellipse at center, rgba(0,0,0,.42), rgba(0,0,0,0) 70%);
+      filter:blur(18px);
+      z-index:-1;
+      pointer-events:none;
+    }
+
+    .wheel-frame{
+      position:absolute;
+      inset:0;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 50% 45%, rgba(255,255,255,.12), transparent 48%),
+        linear-gradient(180deg, #fff3ca, #ffd970 38%, #f6a91b 70%, #834702 100%);
+      box-shadow:
+        inset 0 3px 0 rgba(255,255,255,.50),
+        inset 0 -6px 16px rgba(99,49,2,.48),
+        var(--wheel-shadow);
+      transform:translateZ(0);
+    }
+
+    .wheel-plate{
+      position:absolute;
+      inset:18px;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 50% 20%, rgba(255,255,255,.12), transparent 25%),
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.11);
+      box-shadow:
+        inset 0 2px 10px rgba(255,255,255,.05),
+        inset 0 -18px 26px rgba(0,0,0,.18);
+      overflow:hidden;
+    }
+
+    .wheel-plate::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 28% 18%, rgba(255,255,255,.16), transparent 15%),
+        radial-gradient(circle at 72% 74%, rgba(255,255,255,.08), transparent 12%);
+      pointer-events:none;
+    }
+
+    .wheel-canvas{
+      width:100%;
+      height:100%;
+      border-radius:999px;
+      transform:rotateX(10deg);
+      will-change:transform;
+      backface-visibility:hidden;
+    }
+
+    .wheel-center{
+      position:absolute;
+      left:50%;
+      top:50%;
+      width:29%;
+      height:29%;
+      transform:translate(-50%, -50%);
+      border-radius:999px;
+      display:grid;
+      place-items:center;
+      z-index:5;
+      background:
+        radial-gradient(circle at 30% 25%, rgba(255,255,255,.75), transparent 18%),
+        linear-gradient(180deg, #fff6db, #ffd871 42%, #ffb534 100%);
+      border:2px solid rgba(255,255,255,.45);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.70),
+        0 10px 24px rgba(0,0,0,.26),
+        0 0 28px rgba(255,216,101,.18);
+    }
+
+    .wheel-center::before{
+      content:"";
+      position:absolute;
+      inset:12%;
+      border-radius:999px;
+      background:
+        radial-gradient(circle at 30% 25%, rgba(255,255,255,.90), transparent 20%),
+        linear-gradient(180deg, #ffeff7, #ff91bb 45%, #ff307f 100%);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.60);
+    }
+
+    .wheel-center-text{
+      position:relative;
+      z-index:1;
+      padding:0 8px;
+      text-align:center;
+      font-size:clamp(12px, 1.08vw, 15px);
+      line-height:1.05;
+      font-weight:1000;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      color:#fff9fb;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .wheel-status{
+      margin-top:16px;
+      width:min(100%, 720px);
       display:grid;
       gap:12px;
     }
 
-    .field{
-      display:grid;
-      gap:8px;
-    }
-
-    .field label{
-      font-size:12px;
-      font-weight:900;
-      letter-spacing:.14em;
-      text-transform:uppercase;
-      color:var(--gold-2);
-    }
-
-    .input-wrap{
-      position:relative;
-    }
-
-    .input{
-      width:100%;
-      min-height:56px;
+    .status-box{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      padding:14px 16px;
       border-radius:18px;
-      border:1px solid rgba(255,255,255,.1);
       background:
         linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
-      color:#fff;
-      padding:14px 16px;
-      outline:none;
-      box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
-      transition:.2s ease;
+      border:1px solid var(--line-1);
     }
 
-    .input::placeholder{
-      color:#c9a8b7;
-      opacity:1;
-    }
-
-    .input:focus{
-      border-color:rgba(255,200,100,.65);
-      box-shadow:
-        0 0 0 4px rgba(255,196,84,.12),
-        inset 0 1px 0 rgba(255,255,255,.08);
-      transform:translateY(-1px);
-    }
-
-    .btn-row{
+    .status-main{
+      min-width:0;
       display:flex;
-      gap:10px;
-      flex-wrap:wrap;
+      flex-direction:column;
+      gap:6px;
+    }
+
+    .status-title{
+      font-size:clamp(16px, 1.6vw, 22px);
+      font-weight:1000;
+      word-break:break-word;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .status-subtitle{
+      font-size:14px;
+      line-height:1.5;
+      color:var(--text-2);
+      word-break:break-word;
+    }
+
+    .status-chip{
+      flex:none;
+      padding:10px 14px;
+      border-radius:999px;
+      background:rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
+      font-weight:900;
+      white-space:nowrap;
+      text-shadow:var(--txt-shadow);
+    }
+
+    .actions{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:12px;
     }
 
     .btn{
       appearance:none;
       border:none;
       cursor:pointer;
-      min-height:54px;
+      min-height:56px;
       padding:14px 18px;
       border-radius:18px;
-      font-weight:900;
+      font-weight:1000;
       letter-spacing:.01em;
       display:inline-flex;
       align-items:center;
       justify-content:center;
       gap:10px;
+      text-align:center;
       transition:transform .16s ease, box-shadow .16s ease, filter .16s ease, opacity .16s ease;
       box-shadow:var(--shadow-soft);
       user-select:none;
-      text-align:center;
     }
 
     .btn:active{
@@ -454,7 +738,7 @@
       color:#fff;
       background:
         linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
     }
 
     .btn-cyan{
@@ -466,368 +750,56 @@
         0 12px 24px rgba(20,215,235,.18);
     }
 
-    .hint{
-      font-size:13px;
-      line-height:1.5;
-      color:var(--text-2);
-    }
-
-    .tiny{
-      font-size:12px;
-      line-height:1.45;
-      color:var(--text-3);
-    }
-
-    .wheel-card{
-      position:relative;
-      min-height:calc(100vh - 160px);
-      display:flex;
-      flex-direction:column;
-      justify-content:flex-start;
-      align-items:center;
-      padding:20px 20px 24px;
-      overflow:visible;
-    }
-
-    .wheel-stage{
-      position:relative;
-      width:100%;
-      display:grid;
-      place-items:center;
-      padding:10px 0 16px;
-      perspective:1600px;
-    }
-
-    .wheel-rig{
-      position:relative;
-      width:var(--wheel-size);
-      height:var(--wheel-size);
-      max-width:100%;
-      transform-style:preserve-3d;
-      filter:drop-shadow(0 24px 42px rgba(0,0,0,.35));
-    }
-
-    .wheel-rig.is-flashing{
-      animation:flashRig .8s ease 0s 2;
-    }
-
-    @keyframes flashRig{
-      0%,100%{filter:drop-shadow(0 24px 42px rgba(0,0,0,.35))}
-      50%{filter:drop-shadow(0 20px 44px rgba(255,216,100,.4)) drop-shadow(0 0 40px rgba(255,60,143,.3))}
-    }
-
-    .pointer-wrap{
-      position:absolute;
-      top:-8px;
-      left:50%;
-      transform:translateX(-50%);
-      z-index:8;
-      display:grid;
-      place-items:center;
-      pointer-events:none;
-    }
-
-    .pointer-core{
-      width:116px;
-      height:116px;
-      border-radius:999px;
-      display:grid;
-      place-items:center;
-      background:
-        radial-gradient(circle at 35% 30%, rgba(255,255,255,.88), transparent 18%),
-        linear-gradient(180deg, #fff9df, #ffd86a 55%, #ffb530 100%);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.75),
-        0 10px 24px rgba(0,0,0,.34),
-        0 0 24px rgba(255,214,101,.18);
-      border:2px solid rgba(255,255,255,.45);
-    }
-
-    .pointer-core::after{
-      content:"";
-      position:absolute;
-      width:0;
-      height:0;
-      border-left:18px solid transparent;
-      border-right:18px solid transparent;
-      border-top:40px solid #ffd86a;
-      bottom:-26px;
-      filter:drop-shadow(0 6px 8px rgba(0,0,0,.26));
-    }
-
-    .pointer-mini{
-      width:34px;
-      height:34px;
-      border-radius:999px;
-      background:
-        radial-gradient(circle at 30% 28%, rgba(255,255,255,.95), transparent 20%),
-        linear-gradient(180deg, #ffeff6, #ff8cb6 45%, #ff2e8b 100%);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.6),
-        0 8px 14px rgba(0,0,0,.25);
-    }
-
-    .wheel-outer{
-      position:absolute;
-      inset:0;
-      border-radius:999px;
-      background:
-        radial-gradient(circle at 50% 45%, rgba(255,255,255,.12), transparent 48%),
-        linear-gradient(180deg, #fff3ca, #ffd970 38%, #f6a91b 70%, #834702 100%);
-      box-shadow:
-        inset 0 3px 0 rgba(255,255,255,.5),
-        inset 0 -6px 16px rgba(99,49,2,.48),
-        var(--wheel-glow);
-      transform:translateZ(0);
-    }
-
-    .wheel-shadow{
-      position:absolute;
-      inset:auto 10% -5% 10%;
-      height:18%;
-      border-radius:999px;
-      background:radial-gradient(ellipse at center, rgba(0,0,0,.42), rgba(0,0,0,0) 70%);
-      filter:blur(18px);
-      z-index:-1;
-      pointer-events:none;
-    }
-
-    .wheel-plate{
-      position:absolute;
-      inset:18px;
-      border-radius:999px;
-      background:
-        radial-gradient(circle at 50% 20%, rgba(255,255,255,.12), transparent 25%),
-        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
-      border:1px solid rgba(255,255,255,.1);
-      box-shadow:
-        inset 0 2px 10px rgba(255,255,255,.05),
-        inset 0 -18px 26px rgba(0,0,0,.18);
-      overflow:hidden;
-      transform-style:preserve-3d;
-    }
-
-    .wheel-plate::after{
-      content:"";
-      position:absolute;
-      inset:0;
-      border-radius:999px;
-      background:
-        radial-gradient(circle at 28% 18%, rgba(255,255,255,.16), transparent 15%),
-        radial-gradient(circle at 72% 74%, rgba(255,255,255,.08), transparent 12%);
-      pointer-events:none;
-    }
-
-    .wheel-canvas{
-      width:100%;
-      height:100%;
-      border-radius:999px;
-      transform:rotateX(10deg);
-      will-change:transform;
-      backface-visibility:hidden;
-    }
-
-    .wheel-center{
-      position:absolute;
-      inset:50%;
-      width:28%;
-      height:28%;
-      transform:translate(-50%, -50%);
-      border-radius:999px;
-      display:grid;
-      place-items:center;
-      z-index:4;
-      background:
-        radial-gradient(circle at 30% 25%, rgba(255,255,255,.75), transparent 18%),
-        linear-gradient(180deg, #fff6db, #ffd871 42%, #ffb534 100%);
-      border:2px solid rgba(255,255,255,.45);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.7),
-        0 10px 24px rgba(0,0,0,.26),
-        0 0 28px rgba(255,216,101,.18);
-    }
-
-    .wheel-center::before{
-      content:"";
-      position:absolute;
-      inset:12%;
-      border-radius:999px;
-      background:
-        radial-gradient(circle at 30% 25%, rgba(255,255,255,.9), transparent 20%),
-        linear-gradient(180deg, #ffeff7, #ff91bb 45%, #ff307f 100%);
-      box-shadow:inset 0 1px 0 rgba(255,255,255,.6);
-    }
-
-    .wheel-center-text{
-      position:relative;
-      z-index:1;
-      text-align:center;
-      font-size:clamp(12px, 1.1vw, 15px);
-      font-weight:1000;
-      line-height:1.05;
-      color:#fff8fa;
-      letter-spacing:.06em;
-      text-shadow:var(--txt-shadow);
-      text-transform:uppercase;
-      padding:0 8px;
-    }
-
-    .wheel-status{
-      margin-top:16px;
-      width:min(100%, 680px);
-      display:grid;
-      gap:12px;
-    }
-
-    .status-banner{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-      flex-wrap:wrap;
-      padding:14px 16px;
-      border-radius:18px;
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
-      border:1px solid rgba(255,255,255,.08);
-    }
-
-    .status-main{
-      display:flex;
-      flex-direction:column;
-      gap:5px;
-      min-width:0;
-    }
-
-    .status-title{
-      font-weight:1000;
-      font-size:clamp(16px, 1.6vw, 22px);
-      text-shadow:var(--txt-shadow);
-      word-break:break-word;
-    }
-
-    .status-subtitle{
-      color:var(--text-2);
-      font-size:14px;
-      line-height:1.45;
-      word-break:break-word;
-    }
-
-    .status-tag{
-      padding:10px 14px;
-      border-radius:999px;
-      background:rgba(255,255,255,.08);
-      border:1px solid rgba(255,255,255,.08);
-      font-weight:900;
-      white-space:nowrap;
-      color:#fff;
-      text-shadow:var(--txt-shadow);
-    }
-
-    .action-grid{
-      display:grid;
-      grid-template-columns:repeat(3, minmax(0,1fr));
-      gap:12px;
-    }
-
-    .action-grid .btn{
-      width:100%;
-    }
-
-    .history-list,
-    .prize-list{
+    .list{
       display:grid;
       gap:10px;
     }
 
-    .history-item,
-    .prize-item{
-      display:grid;
-      gap:6px;
+    .item{
       padding:14px;
       border-radius:18px;
       background:
         linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
-      border:1px solid rgba(255,255,255,.07);
+      border:1px solid var(--line-1);
     }
 
-    .history-head,
-    .prize-head{
+    .item-head{
       display:flex;
       align-items:flex-start;
       justify-content:space-between;
       gap:10px;
     }
 
-    .history-name,
-    .prize-name{
+    .item-title{
       font-size:15px;
       line-height:1.35;
-      font-weight:900;
+      font-weight:1000;
       color:#fff;
       text-shadow:var(--txt-shadow);
     }
 
-    .history-badge,
-    .prize-badge{
+    .item-badge{
       flex:none;
-      border-radius:999px;
       padding:7px 10px;
+      border-radius:999px;
       font-size:12px;
       font-weight:900;
       background:rgba(255,255,255,.07);
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
       color:var(--gold-1);
       white-space:nowrap;
     }
 
-    .history-meta,
-    .prize-meta{
-      color:var(--text-2);
+    .item-meta{
+      margin-top:6px;
       font-size:13px;
-      line-height:1.5;
+      line-height:1.55;
+      color:var(--text-2);
     }
 
     .buy-box{
       display:grid;
       gap:12px;
-    }
-
-    .buy-row{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:10px;
-    }
-
-    .stepper{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      padding:10px;
-      border-radius:18px;
-      background:rgba(255,255,255,.05);
-      border:1px solid rgba(255,255,255,.08);
-    }
-
-    .stepper button{
-      width:42px;
-      height:42px;
-      border-radius:14px;
-      border:none;
-      cursor:pointer;
-      font-weight:1000;
-      color:#fff;
-      background:rgba(255,255,255,.09);
-    }
-
-    .stepper .qty-display{
-      flex:1;
-      min-width:0;
-      text-align:center;
-      font-weight:1000;
-      font-size:20px;
-      color:#fff;
-      text-shadow:var(--txt-shadow);
     }
 
     .country-switch{
@@ -839,10 +811,10 @@
     .chip{
       min-height:52px;
       border-radius:16px;
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
       background:rgba(255,255,255,.06);
       color:var(--text-1);
-      font-weight:900;
+      font-weight:1000;
       cursor:pointer;
       padding:12px 14px;
       transition:.18s ease;
@@ -857,6 +829,38 @@
         0 12px 22px rgba(255,183,48,.16);
     }
 
+    .stepper{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:10px;
+      border-radius:18px;
+      background:rgba(255,255,255,.05);
+      border:1px solid var(--line-1);
+    }
+
+    .stepper button{
+      width:42px;
+      height:42px;
+      border:none;
+      border-radius:14px;
+      cursor:pointer;
+      font-size:22px;
+      font-weight:1000;
+      color:#fff;
+      background:rgba(255,255,255,.09);
+    }
+
+    .qty-display{
+      flex:1;
+      min-width:0;
+      text-align:center;
+      font-weight:1000;
+      font-size:20px;
+      color:#fff;
+      text-shadow:var(--txt-shadow);
+    }
+
     .totals{
       display:grid;
       gap:8px;
@@ -864,7 +868,7 @@
       border-radius:18px;
       background:
         linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
-      border:1px solid rgba(255,255,255,.07);
+      border:1px solid var(--line-1);
     }
 
     .totals-row{
@@ -872,20 +876,32 @@
       align-items:center;
       justify-content:space-between;
       gap:12px;
-      color:var(--text-2);
       font-size:14px;
+      color:var(--text-2);
     }
 
     .totals-row strong{
       color:#fff;
       font-size:16px;
       text-shadow:var(--txt-shadow);
+      text-align:right;
+    }
+
+    .button-stack{
+      display:grid;
+      gap:10px;
+    }
+
+    .history-empty{
+      color:var(--text-2);
+      font-size:13px;
+      line-height:1.55;
     }
 
     .footer-note{
       margin-top:auto;
       text-align:center;
-      color:var(--text-3);
+      color:var(--text-4);
       font-size:12px;
       line-height:1.5;
       padding-top:8px;
@@ -908,7 +924,7 @@
       gap:4px;
       padding:14px 16px;
       border-radius:18px;
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
       background:
         linear-gradient(180deg, rgba(22,7,17,.96), rgba(12,4,10,.92));
       box-shadow:var(--shadow-soft);
@@ -919,7 +935,7 @@
 
     .toast.success{border-color:rgba(67,242,166,.22)}
     .toast.error{border-color:rgba(255,109,127,.22)}
-    .toast.info{border-color:rgba(107,234,255,.2)}
+    .toast.info{border-color:rgba(107,234,255,.20)}
 
     @keyframes toastIn{
       to{opacity:1;transform:translateY(0) scale(1)}
@@ -932,9 +948,9 @@
     }
 
     .toast-text{
-      color:var(--text-2);
       font-size:14px;
       line-height:1.45;
+      color:var(--text-2);
     }
 
     .modal-backdrop{
@@ -960,7 +976,7 @@
       background:
         linear-gradient(180deg, rgba(255,255,255,.1), rgba(255,255,255,.04)),
         linear-gradient(180deg, rgba(21,7,18,.98), rgba(11,4,9,.97));
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
       box-shadow:var(--shadow-strong);
       transform:translateY(12px) scale(.98);
       opacity:0;
@@ -1000,7 +1016,7 @@
       gap:14px;
     }
 
-    .result-prize{
+    .result-box{
       padding:18px;
       border-radius:22px;
       text-align:center;
@@ -1008,10 +1024,10 @@
         radial-gradient(circle at top left, rgba(255,225,117,.18), transparent 24%),
         radial-gradient(circle at bottom right, rgba(255,61,145,.16), transparent 26%),
         linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
-      border:1px solid rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
     }
 
-    .result-prize strong{
+    .result-box strong{
       display:block;
       font-size:clamp(24px, 3vw, 36px);
       line-height:1.02;
@@ -1019,7 +1035,7 @@
       text-shadow:var(--txt-shadow);
     }
 
-    .result-prize span{
+    .result-box span{
       display:block;
       margin-top:8px;
       color:var(--text-2);
@@ -1027,7 +1043,7 @@
       line-height:1.5;
     }
 
-    .result-actions{
+    .modal-actions{
       display:grid;
       grid-template-columns:1fr 1fr;
       gap:10px;
@@ -1048,70 +1064,55 @@
       white-space:nowrap;border:0;
     }
 
-    @keyframes pulseGlow{
-      0%,100%{box-shadow:var(--wheel-glow)}
-      50%{box-shadow:0 0 0 2px rgba(255,216,100,.24), 0 0 70px rgba(255,60,143,.24), 0 0 120px rgba(117,71,255,.16)}
-    }
-
-    .wheel-rig.idle{
-      animation:pulseGlow 3.2s ease-in-out infinite;
-    }
-
-    @media (max-width: 1280px){
-      .grid{
-        grid-template-columns:330px minmax(0,1fr);
+    @media (max-width:1280px){
+      .layout{
+        grid-template-columns:340px minmax(0,1fr);
       }
       .right-col{
         grid-column:1 / -1;
       }
-      .hero-card,.wheel-card{
+      .hero,.wheel-card{
         min-height:auto;
       }
     }
 
-    @media (max-width: 960px){
-      .grid{
+    @media (max-width:960px){
+      .layout{
         grid-template-columns:1fr;
       }
-      .hero-card,.wheel-card{
+      .hero,.wheel-card{
         min-height:auto;
       }
       .topbar{
         position:relative;
         padding:14px;
       }
-      .action-grid{
+      .actions{
         grid-template-columns:1fr;
       }
-      .result-actions{
+      .modal-actions{
         grid-template-columns:1fr;
-      }
-      .buy-row{
-        grid-template-columns:1fr;
-      }
-      .stats-grid{
-        grid-template-columns:1fr 1fr;
       }
     }
 
-    @media (max-width: 640px){
+    @media (max-width:640px){
       :root{
         --wheel-size:min(88vw, 460px);
       }
-      .app-shell{
+      .app{
         padding:calc(var(--safe-top) + 10px) 10px calc(var(--safe-bottom) + 18px);
       }
       .topbar{
         border-radius:20px;
         gap:10px;
       }
-      .brand-badge{
+      .brand-icon{
         width:44px;height:44px;border-radius:14px;font-size:22px;
       }
       .panel{
         padding:14px;
       }
-      .welcome-banner{
+      .hero-banner{
         padding:16px;
       }
       .stats-grid{
@@ -1120,10 +1121,10 @@
       .country-switch{
         grid-template-columns:1fr;
       }
-      .pointer-core{
+      .pointer-disc{
         width:98px;height:98px;
       }
-      .pointer-core::after{
+      .pointer-disc::after{
         border-left-width:16px;
         border-right-width:16px;
         border-top-width:34px;
@@ -1141,8 +1142,8 @@
       }
     }
 
-    @media (prefers-reduced-motion: reduce){
-      *, *::before, *::after{
+    @media (prefers-reduced-motion:reduce){
+      *,*::before,*::after{
         animation-duration:.001ms!important;
         animation-iteration-count:1!important;
         transition-duration:.001ms!important;
@@ -1156,57 +1157,19 @@
 
   <div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="true"></div>
 
-  <div class="modal-backdrop" id="welcomeModal" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
-    <div class="modal">
-      <div class="modal-hero">
-        <h2 class="modal-title" id="welcomeTitle">Bienvenido/a a {{ bot_name|default('Ruleta Premium', true)|e }}</h2>
-        <p class="modal-subtitle">
-          Ingresá tu nombre, usá tu demo gratis y girá por premios reales con una ruleta premium.
-        </p>
-      </div>
-      <div class="modal-body">
-        <div class="field">
-          <label for="welcomeNameInput">Tu nombre para jugar</label>
-          <div class="input-wrap">
-            <input
-              id="welcomeNameInput"
-              class="input"
-              type="text"
-              maxlength="40"
-              autocomplete="name"
-              placeholder="Ej: Gabriel"
-              value="{{ display_name|default('Jugador', true)|e }}"
-            >
-          </div>
-        </div>
-        <div class="hint">
-          Tu nombre se guarda para saludarte, mostrar tu premio y registrar tus giros.
-        </div>
-        <div class="result-actions">
-          <button class="btn btn-dark" id="welcomeSkipBtn" type="button">Seguir así</button>
-          <button class="btn btn-accent" id="welcomeSaveBtn" type="button">Guardar y empezar</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div class="modal-backdrop" id="resultModal" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
     <div class="modal">
       <div class="modal-hero">
         <h2 class="modal-title" id="resultTitle">Tu resultado</h2>
-        <p class="modal-subtitle" id="resultSubtitle">
-          Gracias por jugar.
-        </p>
+        <p class="modal-subtitle" id="resultSubtitle">Gracias por jugar.</p>
       </div>
       <div class="modal-body">
-        <div class="result-prize">
+        <div class="result-box">
           <strong id="resultPrizeName">Premio</strong>
           <span id="resultPrizeValue">Valorizado</span>
         </div>
-        <div class="hint" id="resultThanksText">
-          Gracias por jugar.
-        </div>
-        <div class="result-actions">
+        <div class="hint" id="resultThanksText">Gracias por jugar.</div>
+        <div class="modal-actions">
           <button class="btn btn-dark" id="resultCloseBtn" type="button">Cerrar</button>
           <button class="btn btn-primary" id="resultSpinAgainBtn" type="button">Volver a girar</button>
         </div>
@@ -1214,143 +1177,138 @@
     </div>
   </div>
 
-  <main class="app-shell">
+  <main class="app">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-badge" aria-hidden="true">🎰</div>
+        <div class="brand-icon" aria-hidden="true">🎰</div>
         <div class="brand-copy">
           <div class="eyebrow">Experiencia premium</div>
           <div class="brand-title">{{ bot_name|default('Ruleta Premium', true)|e }}</div>
         </div>
       </div>
 
-      <div class="top-actions">
+      <div class="top-stats">
         <div class="pill">💱 <strong id="topCurrency">{{ currency|default('UYU', true)|e }}</strong></div>
         <div class="pill">🎟 <strong id="topTokens">{{ fichas|default(0, true) }}</strong></div>
         <div class="pill">🆓 <strong id="topDemo">{{ demo_spins_left|default(0, true) }}</strong></div>
       </div>
     </header>
 
-    <section class="grid">
-      <aside class="card hero-card">
+    <section class="layout">
+      <aside class="card hero">
         <div class="panel">
-          <div class="welcome-banner">
+          <div class="hero-banner">
             <h1 id="heroGreeting">Hola, {{ display_name|default('Jugador', true)|e }}</h1>
             <p>
-              Elegí tu nombre, usá tu demo gratis, comprá fichas y girá una ruleta con estilo premium, mejor contraste
-              y textos mucho más legibles.
+              Girá una ruleta premium con mejor contraste, mejor lectura, diseño más limpio y flujo más claro para comprar fichas y aprobar pagos.
             </p>
           </div>
         </div>
 
         <div class="panel">
-          <div class="section-title">
+          <div class="section-head">
             <h2>Tu panel</h2>
-            <small>Todo sincronizado</small>
+            <small>Resumen rápido</small>
           </div>
 
           <div class="stats-grid">
             <div class="stat">
               <div class="stat-label">Tus fichas</div>
               <div class="stat-value" id="statTokens">{{ fichas|default(0, true) }}</div>
-              <div class="stat-help">Saldo listo para girar.</div>
+              <div class="stat-help">Saldo actual disponible para girar.</div>
             </div>
 
             <div class="stat">
               <div class="stat-label">Demo gratis</div>
               <div class="stat-value" id="statDemo">{{ demo_spins_left|default(0, true) }}</div>
-              <div class="stat-help">Usá tu tiro gratis primero.</div>
+              <div class="stat-help">Usá primero tu demo si todavía la tenés.</div>
             </div>
 
             <div class="stat">
               <div class="stat-label">Moneda</div>
               <div class="stat-value" id="statCurrency">{{ currency|default('UYU', true)|e }}</div>
-              <div class="stat-help">Se usa para mostrar precios.</div>
+              <div class="stat-help">Se usa para mostrar precios en pantalla.</div>
             </div>
 
             <div class="stat">
               <div class="stat-label">Valor ficha</div>
               <div class="stat-value" id="statTicket">{{ ticket_price_label|default('250 UYU', true)|e }}</div>
-              <div class="stat-help">Precio unitario por ficha.</div>
+              <div class="stat-help">Precio unitario según país seleccionado.</div>
             </div>
           </div>
         </div>
 
         <div class="panel">
-          <div class="section-title">
-            <h2>Tu nombre de jugador</h2>
-            <small>Guardado automático</small>
+          <div class="section-head">
+            <h2>Instrucciones de compra</h2>
+            <small>Simple y claro</small>
           </div>
 
-          <form class="name-form" id="nameForm">
-            <div class="field">
-              <label for="playerNameInput">Nombre visible</label>
-              <div class="input-wrap">
-                <input
-                  id="playerNameInput"
-                  class="input"
-                  type="text"
-                  maxlength="40"
-                  autocomplete="name"
-                  placeholder="Ingresá tu nombre"
-                  value="{{ display_name|default('Jugador', true)|e }}"
-                >
-              </div>
+          <div class="info-list">
+            <div class="info-item">
+              <strong>1. Elegí país y cantidad</strong>
+              <span>Seleccioná Uruguay o Argentina y la cantidad de fichas que querés registrar.</span>
             </div>
 
-            <div class="btn-row">
-              <button class="btn btn-accent" type="submit">💾 Guardar nombre</button>
-              <button class="btn btn-dark" id="restoreNameBtn" type="button">↺ Restaurar</button>
+            <div class="info-item">
+              <strong>2. Tocá el botón de pago</strong>
+              <span>El botón cambia automáticamente a <b>Pagar en UYU</b> o <b>Pagar en ARS</b> según tu elección.</span>
             </div>
 
-            <div class="hint">
-              Tu nombre se usa para la bienvenida, el mensaje final del premio y el registro de tus giros.
+            <div class="info-item">
+              <strong>3. Se crea un pendiente</strong>
+              <span>Después del registro, el sistema genera una compra pendiente para aprobar desde Telegram.</span>
             </div>
-          </form>
+
+            <div class="info-item">
+              <strong>4. Acreditación admin</strong>
+              <span>Como administrador, revisás la compra pendiente y luego sumás las fichas al cliente.</span>
+            </div>
+          </div>
         </div>
 
         <div class="panel">
-          <div class="section-title">
+          <div class="section-head">
             <h2>Últimos resultados</h2>
             <small>Sesión actual</small>
           </div>
 
-          <div class="history-list" id="historyList">
-            <div class="history-item">
-              <div class="history-head">
-                <div class="history-name">Todavía no giraste</div>
-                <div class="history-badge">Listo</div>
+          <div class="list" id="historyList">
+            <div class="item">
+              <div class="item-head">
+                <div class="item-title">Todavía no giraste</div>
+                <div class="item-badge">Listo</div>
               </div>
-              <div class="history-meta">
-                Cuando hagas tu primer giro, tu historial aparecerá acá.
+              <div class="item-meta">
+                Cuando hagas tu primer giro, tu historial va a aparecer acá.
               </div>
             </div>
           </div>
         </div>
 
         <div class="footer-note">
-          Premium UI · responsive · alto contraste · visual 3D · demo gratis · compra de fichas · Telegram admin
+          Premium UI · responsive · visual 3D · compra por país · demo gratis · aprobación clara para admin
         </div>
       </aside>
 
       <section class="card wheel-card">
-        <div class="section-title" style="width:100%;max-width:700px;">
+        <div class="wheel-top">
           <h2>Ruleta premium 3D</h2>
           <small id="wheelStateLabel">Lista para girar</small>
         </div>
 
         <div class="wheel-stage">
           <div class="wheel-rig idle" id="wheelRig">
-            <div class="pointer-wrap" aria-hidden="true">
-              <div class="pointer-core">
-                <div class="pointer-mini"></div>
+            <div class="wheel-pointer" aria-hidden="true">
+              <div class="pointer-disc">
+                <div class="pointer-core"></div>
               </div>
             </div>
 
-            <div class="wheel-outer"></div>
-            <div class="wheel-shadow"></div>
+            <div class="wheel-shadow-floor"></div>
+            <div class="wheel-frame"></div>
 
-            <div class="wheel-plate" id="wheelPlate">
+            <div class="wheel-plate">
               <canvas id="wheelCanvas" class="wheel-canvas" width="1200" height="1200" aria-label="Ruleta de premios"></canvas>
             </div>
 
@@ -1361,29 +1319,29 @@
         </div>
 
         <div class="wheel-status">
-          <div class="status-banner">
+          <div class="status-box">
             <div class="status-main">
               <div class="status-title" id="statusTitle">Bienvenido/a, {{ display_name|default('Jugador', true)|e }}</div>
               <div class="status-subtitle" id="statusSubtitle">
-                Usá tu demo gratis o elegí cuántas fichas querés comprar.
+                Usá tu demo gratis o comprá fichas para girar.
               </div>
             </div>
-            <div class="status-tag" id="statusTag">🎁 Demo disponible</div>
+            <div class="status-chip" id="statusChip">🎁 Demo disponible</div>
           </div>
 
-          <div class="action-grid">
+          <div class="actions">
             <button class="btn btn-primary" id="spinDemoBtn" type="button">🆓 Girar demo</button>
             <button class="btn btn-accent" id="spinPaidBtn" type="button">🎰 Girar con ficha</button>
-            <button class="btn btn-cyan" id="openBuyBtn" type="button">💳 Comprar fichas</button>
+            <button class="btn btn-cyan" id="goBuyBtn" type="button">💳 Ir a compra</button>
           </div>
         </div>
       </section>
 
       <aside class="card right-col">
         <div class="panel">
-          <div class="section-title">
+          <div class="section-head">
             <h2>Comprar fichas</h2>
-            <small>Pago por país</small>
+            <small>Pago según país</small>
           </div>
 
           <div class="buy-box">
@@ -1392,13 +1350,10 @@
               <button class="chip" data-country="AR" type="button">🇦🇷 Argentina</button>
             </div>
 
-            <div class="field">
-              <label>Cantidad de fichas</label>
-              <div class="stepper">
-                <button type="button" id="qtyMinusBtn" aria-label="Restar una ficha">−</button>
-                <div class="qty-display" id="qtyDisplay">1</div>
-                <button type="button" id="qtyPlusBtn" aria-label="Sumar una ficha">+</button>
-              </div>
+            <div class="stepper">
+              <button type="button" id="qtyMinusBtn" aria-label="Restar una ficha">−</button>
+              <div class="qty-display" id="qtyDisplay">1</div>
+              <button type="button" id="qtyPlusBtn" aria-label="Sumar una ficha">+</button>
             </div>
 
             <div class="totals">
@@ -1416,64 +1371,62 @@
               </div>
             </div>
 
-            <div class="btn-row">
-              <button class="btn btn-primary" id="buyNowBtn" type="button">💳 Registrar compra</button>
-              <button class="btn btn-dark" id="copyPaymentBtn" type="button">🔗 Copiar link</button>
+            <div class="button-stack">
+              <button class="btn btn-primary" id="buyNowBtn" type="button">💳 Pagar en UYU</button>
+              <button class="btn btn-dark" id="copyPaymentBtn" type="button">🔗 Copiar link de pago</button>
             </div>
 
             <div class="hint">
-              Al registrar la compra, se genera un pendiente para que luego acredites las fichas desde Telegram con
+              Al registrar la compra, se genera un pendiente para luego acreditar las fichas desde Telegram con
               <strong>/compraspendientes</strong> y <strong>/aprobarcompra</strong>.
             </div>
           </div>
         </div>
 
         <div class="panel">
-          <div class="section-title">
+          <div class="section-head">
             <h2>Premios visibles</h2>
-            <small>Alta legibilidad</small>
+            <small>Mejor lectura</small>
           </div>
-          <div class="prize-list" id="prizeList"></div>
+          <div class="list" id="prizeList"></div>
         </div>
 
         <div class="panel">
-          <div class="section-title">
-            <h2>Ayuda rápida</h2>
-            <small>Tu flujo ideal</small>
+          <div class="section-head">
+            <h2>Admin rápido</h2>
+            <small>Más simple para vos</small>
           </div>
 
-          <div class="prize-list">
-            <div class="prize-item">
-              <div class="prize-head">
-                <div class="prize-name">1. Guardá tu nombre</div>
-                <div class="prize-badge">Perfil</div>
+          <div class="list">
+            <div class="item">
+              <div class="item-head">
+                <div class="item-title">Buscar cliente por nombre</div>
+                <div class="item-badge">Admin</div>
               </div>
-              <div class="prize-meta">Así la experiencia queda personalizada y más prolija.</div>
+              <div class="item-meta">
+                Pedile al cliente que use siempre el mismo nombre visible. Así te queda más fácil encontrarlo y reconocer la compra.
+              </div>
             </div>
 
-            <div class="prize-item">
-              <div class="prize-head">
-                <div class="prize-name">2. Usá tu demo gratis</div>
-                <div class="prize-badge">Inicio</div>
+            <div class="item">
+              <div class="item-head">
+                <div class="item-title">Flujo recomendado</div>
+                <div class="item-badge">Telegram</div>
               </div>
-              <div class="prize-meta">Probás la ruleta sin gastar fichas.</div>
+              <div class="item-meta">
+                1) <strong>/compraspendientes</strong> <br>
+                2) revisás nombre + cantidad <br>
+                3) <strong>/aprobarcompra ID</strong>
+              </div>
             </div>
 
-            <div class="prize-item">
-              <div class="prize-head">
-                <div class="prize-name">3. Registrá una compra</div>
-                <div class="prize-badge">Pago</div>
+            <div class="item">
+              <div class="item-head">
+                <div class="item-title">Para dejarlo todavía más fácil</div>
+                <div class="item-badge">Backend</div>
               </div>
-              <div class="prize-meta">Elegís país y cantidad de fichas.</div>
-            </div>
-
-            <div class="prize-item">
-              <div class="prize-head">
-                <div class="prize-name">4. Acreditá desde Telegram</div>
-                <div class="prize-badge">Admin</div>
-              </div>
-              <div class="prize-meta">
-                Usá <strong>/compraspendientes</strong> y luego <strong>/aprobarcompra ID</strong>.
+              <div class="item-meta">
+                Si querés aprobar fichas directamente por nombre de cliente, eso hay que agregarlo en <strong>app.py</strong> / <strong>utils.py</strong>.
               </div>
             </div>
           </div>
@@ -1481,6 +1434,8 @@
       </aside>
     </section>
   </main>
+
+  <div class="modal-backdrop" id="resultModal2" style="display:none"></div>
 
   <script>
     (() => {
@@ -1506,20 +1461,16 @@
         mpLinkUy: String(rawUiConfig.mpLinkUy || {{ mp_link_uy|default('', true)|tojson|safe }} || ""),
         prizes: Array.isArray(rawPrizes) ? rawPrizes : [],
         maxPurchaseQty: Number(rawUiConfig?.limits?.maxPurchaseQty ?? {{ max_purchase_qty|default(100, true)|tojson|safe }} ?? 100),
-        initialDemoSpins: Number(rawUiConfig?.limits?.demoSpins ?? {{ demo_spins|default(1, true)|tojson|safe }} ?? 1),
         selectedCountry: "UY",
         qty: 1,
         spinning: false,
         history: [],
-        lastPrize: null,
-        rotationDeg: 0,
-        hasShownWelcome: false
+        rotationDeg: 0
       };
 
       const els = {
         wheelCanvas: document.getElementById("wheelCanvas"),
         wheelRig: document.getElementById("wheelRig"),
-        wheelPlate: document.getElementById("wheelPlate"),
         topTokens: document.getElementById("topTokens"),
         topDemo: document.getElementById("topDemo"),
         topCurrency: document.getElementById("topCurrency"),
@@ -1528,17 +1479,13 @@
         statCurrency: document.getElementById("statCurrency"),
         statTicket: document.getElementById("statTicket"),
         heroGreeting: document.getElementById("heroGreeting"),
-        playerNameInput: document.getElementById("playerNameInput"),
-        welcomeNameInput: document.getElementById("welcomeNameInput"),
-        restoreNameBtn: document.getElementById("restoreNameBtn"),
-        nameForm: document.getElementById("nameForm"),
         spinDemoBtn: document.getElementById("spinDemoBtn"),
         spinPaidBtn: document.getElementById("spinPaidBtn"),
-        openBuyBtn: document.getElementById("openBuyBtn"),
+        goBuyBtn: document.getElementById("goBuyBtn"),
         wheelStateLabel: document.getElementById("wheelStateLabel"),
         statusTitle: document.getElementById("statusTitle"),
         statusSubtitle: document.getElementById("statusSubtitle"),
-        statusTag: document.getElementById("statusTag"),
+        statusChip: document.getElementById("statusChip"),
         prizeList: document.getElementById("prizeList"),
         historyList: document.getElementById("historyList"),
         countrySwitch: document.getElementById("countrySwitch"),
@@ -1551,9 +1498,6 @@
         buyNowBtn: document.getElementById("buyNowBtn"),
         copyPaymentBtn: document.getElementById("copyPaymentBtn"),
         toastWrap: document.getElementById("toastWrap"),
-        welcomeModal: document.getElementById("welcomeModal"),
-        welcomeSaveBtn: document.getElementById("welcomeSaveBtn"),
-        welcomeSkipBtn: document.getElementById("welcomeSkipBtn"),
         resultModal: document.getElementById("resultModal"),
         resultPrizeName: document.getElementById("resultPrizeName"),
         resultPrizeValue: document.getElementById("resultPrizeValue"),
@@ -1564,8 +1508,13 @@
         confettiCanvas: document.getElementById("confettiCanvas")
       };
 
-      const ctx = els.wheelCanvas.getContext("2d");
+      const wheelCtx = els.wheelCanvas.getContext("2d");
       const confettiCtx = els.confettiCanvas.getContext("2d");
+
+      let confettiPieces = [];
+      let confettiFrame = null;
+      let audioCtx = null;
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
       function clamp(value, min, max) {
         return Math.min(max, Math.max(min, value));
@@ -1580,6 +1529,15 @@
         return normalizeText(value, "Jugador").slice(0, 40);
       }
 
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
       function moneyFromUyu(amountUyu, currency = STATE.currency) {
         const amount = Number(amountUyu || 0);
         if (currency === "ARS") return `${Math.round(amount * STATE.uyuToArs)} ARS`;
@@ -1590,17 +1548,21 @@
         return moneyFromUyu(STATE.ticketPriceUyu, currency);
       }
 
-      function getSelectedPaymentLink() {
-        return STATE.selectedCountry === "AR" ? STATE.mpLinkAr : STATE.mpLinkUy;
-      }
-
       function countryLabel(country) {
         return country === "AR" ? "Argentina" : "Uruguay";
+      }
+
+      function getSelectedPaymentLink() {
+        return STATE.selectedCountry === "AR" ? STATE.mpLinkAr : STATE.mpLinkUy;
       }
 
       function totalPriceLabel() {
         const totalUyu = STATE.ticketPriceUyu * STATE.qty;
         return moneyFromUyu(totalUyu, STATE.selectedCountry === "AR" ? "ARS" : "UYU");
+      }
+
+      function getPayButtonLabel() {
+        return STATE.selectedCountry === "AR" ? "💳 Pagar en ARS" : "💳 Pagar en UYU";
       }
 
       function showToast(title, text = "", type = "info", duration = 2800) {
@@ -1617,15 +1579,6 @@
           toast.style.transform = "translateY(-8px) scale(.98)";
           window.setTimeout(() => toast.remove(), 220);
         }, duration);
-      }
-
-      function escapeHtml(value) {
-        return String(value)
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")
-          .replaceAll("'", "&#039;");
       }
 
       async function api(url, payload) {
@@ -1672,6 +1625,7 @@
         els.buyCountryLabel.textContent = countryLabel(STATE.selectedCountry);
         els.buyTotalLabel.textContent = totalPriceLabel();
         els.qtyDisplay.textContent = String(STATE.qty);
+        els.buyNowBtn.textContent = getPayButtonLabel();
       }
 
       function updateGreeting() {
@@ -1682,11 +1636,11 @@
           : `Tu demo gratis ya fue usada. Comprá fichas o girá con saldo.`;
 
         if (STATE.demoSpinsLeft > 0) {
-          els.statusTag.textContent = "🎁 Demo disponible";
+          els.statusChip.textContent = "🎁 Demo disponible";
         } else if (STATE.fichas > 0) {
-          els.statusTag.textContent = "🎟 Tenés fichas";
+          els.statusChip.textContent = "🎟 Tenés fichas";
         } else {
-          els.statusTag.textContent = "💳 Comprá fichas";
+          els.statusChip.textContent = "💳 Comprá fichas";
         }
       }
 
@@ -1704,13 +1658,13 @@
 
         STATE.prizes.forEach((prize) => {
           const item = document.createElement("div");
-          item.className = "prize-item";
+          item.className = "item";
           item.innerHTML = `
-            <div class="prize-head">
-              <div class="prize-name">${escapeHtml(prize.name)}</div>
-              <div class="prize-badge">${escapeHtml(moneyFromUyu(prize.uyu_price, STATE.currency))}</div>
+            <div class="item-head">
+              <div class="item-title">${escapeHtml(prize.name)}</div>
+              <div class="item-badge">${escapeHtml(moneyFromUyu(prize.uyu_price, STATE.currency))}</div>
             </div>
-            <div class="prize-meta">
+            <div class="item-meta">
               Probabilidad visible: ${escapeHtml(String(prize.chance))}% · Premio premium
             </div>
           `;
@@ -1723,13 +1677,13 @@
 
         if (!STATE.history.length) {
           els.historyList.innerHTML = `
-            <div class="history-item">
-              <div class="history-head">
-                <div class="history-name">Todavía no giraste</div>
-                <div class="history-badge">Listo</div>
+            <div class="item">
+              <div class="item-head">
+                <div class="item-title">Todavía no giraste</div>
+                <div class="item-badge">Listo</div>
               </div>
-              <div class="history-meta">
-                Cuando hagas tu primer giro, tu historial aparecerá acá.
+              <div class="item-meta">
+                Cuando hagas tu primer giro, tu historial va a aparecer acá.
               </div>
             </div>
           `;
@@ -1738,13 +1692,13 @@
 
         STATE.history.slice(0, 6).forEach((entry) => {
           const item = document.createElement("div");
-          item.className = "history-item";
+          item.className = "item";
           item.innerHTML = `
-            <div class="history-head">
-              <div class="history-name">${escapeHtml(entry.prizeName)}</div>
-              <div class="history-badge">${escapeHtml(entry.mode === "demo" ? "Demo" : "Ficha")}</div>
+            <div class="item-head">
+              <div class="item-title">${escapeHtml(entry.prizeName)}</div>
+              <div class="item-badge">${escapeHtml(entry.mode === "demo" ? "Demo" : "Ficha")}</div>
             </div>
-            <div class="history-meta">
+            <div class="item-meta">
               ${escapeHtml(entry.displayValue)} · ${escapeHtml(entry.timeLabel)}
             </div>
           `;
@@ -1761,14 +1715,13 @@
         const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 
         const wheelRect = els.wheelCanvas.getBoundingClientRect();
-        const wheelSize = Math.max(400, Math.round(Math.max(wheelRect.width, wheelRect.height)));
+        const wheelSize = Math.max(360, Math.round(Math.max(wheelRect.width, wheelRect.height)));
         els.wheelCanvas.width = Math.round(wheelSize * dpr);
         els.wheelCanvas.height = Math.round(wheelSize * dpr);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        wheelCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        const confettiRect = { width: window.innerWidth, height: window.innerHeight };
-        els.confettiCanvas.width = Math.round(confettiRect.width * dpr);
-        els.confettiCanvas.height = Math.round(confettiRect.height * dpr);
+        els.confettiCanvas.width = Math.round(window.innerWidth * dpr);
+        els.confettiCanvas.height = Math.round(window.innerHeight * dpr);
         confettiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         drawWheel(STATE.rotationDeg);
@@ -1786,100 +1739,6 @@
           ["#c7fff1", "#38dfb2"]
         ];
         return palettes[index % palettes.length];
-      }
-
-      function drawWheel(rotationDeg = 0) {
-        const rect = els.wheelCanvas.getBoundingClientRect();
-        const size = Math.max(320, rect.width);
-        const center = size / 2;
-        const radius = size / 2 - 10;
-        const innerRadius = radius * 0.18;
-        const prizes = STATE.prizes.length ? STATE.prizes : [{ name: "Premio", uyu_price: 0, chance: 100 }];
-        const slice = (Math.PI * 2) / prizes.length;
-
-        ctx.clearRect(0, 0, size, size);
-        ctx.save();
-        ctx.translate(center, center);
-        ctx.rotate((rotationDeg * Math.PI) / 180);
-
-        for (let i = 0; i < prizes.length; i++) {
-          const start = -Math.PI / 2 + i * slice;
-          const end = start + slice;
-          const [color1, color2] = segmentPalette(i);
-
-          const grad = ctx.createLinearGradient(
-            Math.cos(start) * radius,
-            Math.sin(start) * radius,
-            Math.cos(end) * radius,
-            Math.sin(end) * radius
-          );
-          grad.addColorStop(0, color1);
-          grad.addColorStop(1, color2);
-
-          ctx.beginPath();
-          ctx.moveTo(0, 0);
-          ctx.arc(0, 0, radius, start, end, false);
-          ctx.closePath();
-          ctx.fillStyle = grad;
-          ctx.fill();
-
-          ctx.lineWidth = Math.max(2, size * 0.0035);
-          ctx.strokeStyle = "rgba(255,255,255,.22)";
-          ctx.stroke();
-
-          ctx.save();
-          const angle = start + slice / 2;
-          ctx.rotate(angle);
-          ctx.translate(radius * 0.66, 0);
-
-          const maxWidth = radius * 0.42;
-          const label = prizes[i].name;
-          const price = moneyFromUyu(prizes[i].uyu_price, STATE.currency);
-
-          ctx.rotate(Math.PI / 2);
-
-          const fontSize = Math.max(16, Math.min(30, size * 0.037));
-          const subFontSize = Math.max(12, Math.min(18, size * 0.022));
-
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillStyle = "#fffef8";
-          ctx.strokeStyle = "rgba(12,4,9,.72)";
-          ctx.lineWidth = Math.max(5, size * 0.006);
-
-          const lines = wrapText(ctx, label, maxWidth, fontSize, 2);
-          const blockHeight = lines.length * (fontSize * 1.06) + subFontSize * 1.55;
-          let y = -(blockHeight / 2) + fontSize * 0.36;
-
-          lines.forEach((line) => {
-            ctx.font = `1000 ${fontSize}px Inter, Arial, sans-serif`;
-            ctx.strokeText(line, 0, y);
-            ctx.fillText(line, 0, y);
-            y += fontSize * 1.06;
-          });
-
-          ctx.font = `900 ${subFontSize}px Inter, Arial, sans-serif`;
-          ctx.strokeText(price, 0, y + subFontSize * 0.42);
-          ctx.fillStyle = "#fff5d2";
-          ctx.fillText(price, 0, y + subFontSize * 0.42);
-
-          ctx.restore();
-        }
-
-        ctx.beginPath();
-        ctx.arc(0, 0, innerRadius, 0, Math.PI * 2);
-        const centerGrad = ctx.createRadialGradient(-innerRadius * 0.2, -innerRadius * 0.2, 1, 0, 0, innerRadius);
-        centerGrad.addColorStop(0, "rgba(255,255,255,.55)");
-        centerGrad.addColorStop(0.22, "#fff0c2");
-        centerGrad.addColorStop(0.7, "#ffcc5b");
-        centerGrad.addColorStop(1, "#ad6207");
-        ctx.fillStyle = centerGrad;
-        ctx.fill();
-        ctx.lineWidth = Math.max(3, size * 0.004);
-        ctx.strokeStyle = "rgba(255,255,255,.4)";
-        ctx.stroke();
-
-        ctx.restore();
       }
 
       function wrapText(context, text, maxWidth, fontSize, maxLines = 2) {
@@ -1911,6 +1770,99 @@
         return trimmed;
       }
 
+      function drawWheel(rotationDeg = 0) {
+        const rect = els.wheelCanvas.getBoundingClientRect();
+        const size = Math.max(320, rect.width);
+        const center = size / 2;
+        const radius = size / 2 - 10;
+        const innerRadius = radius * 0.18;
+        const prizes = STATE.prizes.length ? STATE.prizes : [{ name: "Premio", uyu_price: 0, chance: 100 }];
+        const slice = (Math.PI * 2) / prizes.length;
+
+        wheelCtx.clearRect(0, 0, size, size);
+        wheelCtx.save();
+        wheelCtx.translate(center, center);
+        wheelCtx.rotate((rotationDeg * Math.PI) / 180);
+
+        for (let i = 0; i < prizes.length; i++) {
+          const start = -Math.PI / 2 + i * slice;
+          const end = start + slice;
+          const [color1, color2] = segmentPalette(i);
+
+          const grad = wheelCtx.createLinearGradient(
+            Math.cos(start) * radius,
+            Math.sin(start) * radius,
+            Math.cos(end) * radius,
+            Math.sin(end) * radius
+          );
+          grad.addColorStop(0, color1);
+          grad.addColorStop(1, color2);
+
+          wheelCtx.beginPath();
+          wheelCtx.moveTo(0, 0);
+          wheelCtx.arc(0, 0, radius, start, end, false);
+          wheelCtx.closePath();
+          wheelCtx.fillStyle = grad;
+          wheelCtx.fill();
+
+          wheelCtx.lineWidth = Math.max(2, size * 0.0035);
+          wheelCtx.strokeStyle = "rgba(255,255,255,.22)";
+          wheelCtx.stroke();
+
+          wheelCtx.save();
+          const angle = start + slice / 2;
+          wheelCtx.rotate(angle);
+          wheelCtx.translate(radius * 0.66, 0);
+          wheelCtx.rotate(Math.PI / 2);
+
+          const maxWidth = radius * 0.42;
+          const label = prizes[i].name;
+          const price = moneyFromUyu(prizes[i].uyu_price, STATE.currency);
+
+          const fontSize = Math.max(16, Math.min(30, size * 0.037));
+          const subFontSize = Math.max(12, Math.min(18, size * 0.022));
+
+          wheelCtx.textAlign = "center";
+          wheelCtx.textBaseline = "middle";
+          wheelCtx.fillStyle = "#fffef8";
+          wheelCtx.strokeStyle = "rgba(12,4,9,.74)";
+          wheelCtx.lineWidth = Math.max(5, size * 0.006);
+
+          const lines = wrapText(wheelCtx, label, maxWidth, fontSize, 2);
+          const blockHeight = lines.length * (fontSize * 1.06) + subFontSize * 1.55;
+          let y = -(blockHeight / 2) + fontSize * 0.36;
+
+          lines.forEach((line) => {
+            wheelCtx.font = `1000 ${fontSize}px Inter, Arial, sans-serif`;
+            wheelCtx.strokeText(line, 0, y);
+            wheelCtx.fillText(line, 0, y);
+            y += fontSize * 1.06;
+          });
+
+          wheelCtx.font = `900 ${subFontSize}px Inter, Arial, sans-serif`;
+          wheelCtx.strokeText(price, 0, y + subFontSize * 0.42);
+          wheelCtx.fillStyle = "#fff5d2";
+          wheelCtx.fillText(price, 0, y + subFontSize * 0.42);
+
+          wheelCtx.restore();
+        }
+
+        wheelCtx.beginPath();
+        wheelCtx.arc(0, 0, innerRadius, 0, Math.PI * 2);
+        const centerGrad = wheelCtx.createRadialGradient(-innerRadius * 0.2, -innerRadius * 0.2, 1, 0, 0, innerRadius);
+        centerGrad.addColorStop(0, "rgba(255,255,255,.55)");
+        centerGrad.addColorStop(0.22, "#fff0c2");
+        centerGrad.addColorStop(0.7, "#ffcc5b");
+        centerGrad.addColorStop(1, "#ad6207");
+        wheelCtx.fillStyle = centerGrad;
+        wheelCtx.fill();
+        wheelCtx.lineWidth = Math.max(3, size * 0.004);
+        wheelCtx.strokeStyle = "rgba(255,255,255,.40)";
+        wheelCtx.stroke();
+
+        wheelCtx.restore();
+      }
+
       function setWheelRotation(deg) {
         STATE.rotationDeg = deg;
         drawWheel(deg);
@@ -1920,26 +1872,92 @@
         return STATE.prizes.findIndex((p) => p.name === name);
       }
 
+      function ensureAudio() {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextClass) return null;
+          audioCtx = new AudioContextClass();
+        }
+        if (audioCtx.state === "suspended") {
+          audioCtx.resume();
+        }
+        return audioCtx;
+      }
+
+      function playTone({ frequency = 440, duration = 0.08, type = "triangle", gainValue = 0.02, frequencyEnd = null } = {}) {
+        const ctx = ensureAudio();
+        if (!ctx) return;
+
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = type;
+        osc.frequency.setValueAtTime(frequency, now);
+        if (frequencyEnd !== null) {
+          osc.frequency.exponentialRampToValueAtTime(Math.max(30, frequencyEnd), now + duration);
+        }
+
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(gainValue, now + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + duration + 0.02);
+      }
+
+      function playSpinStart() {
+        playTone({ frequency: 260, frequencyEnd: 90, duration: 0.6, type: "sawtooth", gainValue: 0.012 });
+      }
+
+      function playTick(intensity = 1) {
+        playTone({
+          frequency: 1400 - intensity * 260,
+          frequencyEnd: 950 - intensity * 90,
+          duration: 0.04,
+          type: "triangle",
+          gainValue: 0.012 + intensity * 0.004
+        });
+      }
+
+      function playWin() {
+        const notes = [523, 659, 784, 1047];
+        notes.forEach((freq, index) => {
+          setTimeout(() => {
+            playTone({
+              frequency: freq,
+              frequencyEnd: freq * 1.02,
+              duration: 0.16,
+              type: "triangle",
+              gainValue: 0.024
+            });
+          }, index * 90);
+        });
+      }
+
       async function animateSpinToPrize(prizeName) {
         const index = prizeIndexByName(prizeName);
         const total = Math.max(1, STATE.prizes.length);
         const slice = 360 / total;
         const current = ((STATE.rotationDeg % 360) + 360) % 360;
         const targetCenter = index >= 0 ? (index * slice + slice / 2) : slice / 2;
-        const pointerAngle = 0;
-        const adjustment = (360 - targetCenter + pointerAngle) % 360;
-        const extraTurns = 360 * (6 + Math.floor(Math.random() * 2));
+        const adjustment = (360 - targetCenter) % 360;
+        const extraTurns = 360 * (prefersReducedMotion ? 3 : (6 + Math.floor(Math.random() * 2)));
         const finalDeg = STATE.rotationDeg + extraTurns + adjustment - current + (Math.random() * 6 - 3);
 
         const start = performance.now();
-        const duration = 5600 + Math.random() * 400;
+        const duration = prefersReducedMotion ? 1800 : 5400;
         const initial = STATE.rotationDeg;
+        let lastTickAt = 0;
 
         STATE.spinning = true;
         updateButtons();
         els.wheelStateLabel.textContent = "Girando...";
-        els.statusTag.textContent = "🎰 Girando";
+        els.statusChip.textContent = "🎰 Girando";
         els.wheelRig.classList.remove("idle");
+        playSpinStart();
 
         return new Promise((resolve) => {
           function frame(now) {
@@ -1948,8 +1966,13 @@
             const currentDeg = initial + (finalDeg - initial) * eased;
             setWheelRotation(currentDeg);
 
-            const tilt = 10 + Math.sin(t * Math.PI * 6) * (1 - t) * 3.5;
+            const tilt = 10 + Math.sin(t * Math.PI * 6) * (1 - t) * 3.2;
             els.wheelCanvas.style.transform = `rotateX(${tilt}deg)`;
+
+            if (!prefersReducedMotion && now - lastTickAt > (34 + t * 120) && t < 0.985) {
+              lastTickAt = now;
+              playTick(1 - t * 0.5);
+            }
 
             if (t < 1) {
               requestAnimationFrame(frame);
@@ -1959,47 +1982,13 @@
               STATE.spinning = false;
               updateButtons();
               els.wheelStateLabel.textContent = "Lista para girar";
-              els.statusTag.textContent = STATE.demoSpinsLeft > 0 ? "🎁 Demo disponible" : (STATE.fichas > 0 ? "🎟 Tenés fichas" : "💳 Comprá fichas");
+              updateGreeting();
               resolve();
             }
           }
+
           requestAnimationFrame(frame);
         });
-      }
-
-      async function saveDisplayName(name) {
-        const clean = sanitizeDisplayName(name);
-        STATE.displayName = clean;
-        els.playerNameInput.value = clean;
-        els.welcomeNameInput.value = clean;
-
-        const data = await api("/api/profile", currentPayload({ display_name: clean }));
-        if (data?.profile) {
-          STATE.displayName = sanitizeDisplayName(data.profile.display_name || clean);
-        }
-
-        updateGreeting();
-        showToast("Nombre guardado", `Ahora jugás como ${STATE.displayName}.`, "success");
-      }
-
-      function closeModal(modal) {
-        modal.classList.remove("show");
-      }
-
-      function openModal(modal) {
-        modal.classList.add("show");
-      }
-
-      function maybeOpenWelcome() {
-        if (STATE.hasShownWelcome) return;
-        const key = `wheel-welcome-shown-${STATE.userId || "guest"}`;
-        const stored = window.localStorage.getItem(key);
-
-        if (!stored) {
-          openModal(els.welcomeModal);
-          STATE.hasShownWelcome = true;
-          window.localStorage.setItem(key, "1");
-        }
       }
 
       function addHistory(prizeName, displayValue, mode) {
@@ -2020,12 +2009,11 @@
         updateAllCounters();
         updateGreeting();
         updateButtons();
-        els.playerNameInput.value = STATE.displayName;
-        els.welcomeNameInput.value = STATE.displayName;
       }
 
       async function handleSpin(mode) {
         if (STATE.spinning) return;
+
         if (!STATE.userId) {
           showToast("Falta user_id", "Abrí la ruleta desde Telegram para identificar al jugador.", "error");
           return;
@@ -2043,6 +2031,7 @@
 
           updateStateFromProfile(data.profile);
           addHistory(prizeName, prizeValue, mode);
+
           els.statusTitle.textContent = resultText;
           els.statusSubtitle.textContent = thanks;
           els.resultPrizeName.textContent = prizeName;
@@ -2050,24 +2039,23 @@
           els.resultSubtitle.textContent = resultText;
           els.resultThanksText.textContent = thanks;
 
-          if (data?.fx?.enable_3d_flash) {
-            els.wheelRig.classList.add("is-flashing");
-            window.setTimeout(() => els.wheelRig.classList.remove("is-flashing"), 1200);
+          els.wheelRig.classList.add("flash");
+          setTimeout(() => els.wheelRig.classList.remove("flash"), 1200);
+
+          launchConfetti();
+          playWin();
+
+          if (navigator.vibrate) {
+            navigator.vibrate([80, 40, 120]);
           }
 
-          if (data?.fx?.confetti) {
-            launchConfetti();
-          }
-
-          if (data?.fx?.show_result_modal) {
-            openModal(els.resultModal);
-          }
-
+          openModal(els.resultModal);
           showToast("¡Giro completado!", `${STATE.displayName}, tu premio fue ${prizeName}.`, "success", 3600);
         } catch (error) {
           STATE.spinning = false;
           updateButtons();
           els.wheelStateLabel.textContent = "Lista para girar";
+          updateGreeting();
           showToast("No se pudo girar", error.message || "Ocurrió un error.", "error", 3600);
         }
       }
@@ -2085,15 +2073,16 @@
           }));
 
           const paymentUrl = String(data.payment_url || getSelectedPaymentLink() || "").trim();
+
           showToast("Compra registrada", `ID: ${data.purchase_id}. Ahora completá el pago.`, "success", 4200);
 
           if (paymentUrl) {
             window.open(paymentUrl, "_blank", "noopener,noreferrer");
           }
 
-          els.statusTitle.textContent = `Compra pendiente creada`;
+          els.statusTitle.textContent = "Compra pendiente creada";
           els.statusSubtitle.textContent = `ID ${data.purchase_id}. Luego aprobala desde Telegram con /aprobarcompra ${data.purchase_id}`;
-          els.statusTag.textContent = "🧾 Pendiente";
+          els.statusChip.textContent = "🧾 Pendiente";
         } catch (error) {
           showToast("No se pudo registrar la compra", error.message || "Error inesperado.", "error", 3800);
         }
@@ -2129,81 +2118,13 @@
         updateButtons();
       }
 
-      function bindEvents() {
-        window.addEventListener("resize", resizeCanvases, { passive: true });
-
-        els.nameForm.addEventListener("submit", async (event) => {
-          event.preventDefault();
-          try {
-            await saveDisplayName(els.playerNameInput.value);
-          } catch (error) {
-            showToast("No se pudo guardar", error.message || "Error inesperado.", "error");
-          }
-        });
-
-        els.restoreNameBtn.addEventListener("click", () => {
-          const restored = sanitizeDisplayName(STATE.fullName || STATE.username || "Jugador");
-          els.playerNameInput.value = restored;
-          showToast("Nombre restaurado", "Podés guardarlo si querés usarlo.", "info");
-        });
-
-        els.spinDemoBtn.addEventListener("click", () => handleSpin("demo"));
-        els.spinPaidBtn.addEventListener("click", () => handleSpin("paid"));
-        els.openBuyBtn.addEventListener("click", () => {
-          document.querySelector(".right-col")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
-
-        els.qtyMinusBtn.addEventListener("click", () => changeQty(-1));
-        els.qtyPlusBtn.addEventListener("click", () => changeQty(1));
-        els.buyNowBtn.addEventListener("click", handlePurchase);
-        els.copyPaymentBtn.addEventListener("click", copyPaymentLink);
-
-        els.countrySwitch.addEventListener("click", (event) => {
-          const btn = event.target.closest(".chip");
-          if (!btn) return;
-          setCountry(btn.dataset.country || "UY");
-        });
-
-        els.welcomeSaveBtn.addEventListener("click", async () => {
-          try {
-            await saveDisplayName(els.welcomeNameInput.value);
-            closeModal(els.welcomeModal);
-          } catch (error) {
-            showToast("No se pudo guardar", error.message || "Error inesperado.", "error");
-          }
-        });
-
-        els.welcomeSkipBtn.addEventListener("click", () => {
-          const clean = sanitizeDisplayName(els.welcomeNameInput.value || STATE.displayName);
-          STATE.displayName = clean;
-          els.playerNameInput.value = clean;
-          updateGreeting();
-          closeModal(els.welcomeModal);
-        });
-
-        els.resultCloseBtn.addEventListener("click", () => closeModal(els.resultModal));
-        els.resultSpinAgainBtn.addEventListener("click", () => closeModal(els.resultModal));
-
-        [els.welcomeModal, els.resultModal].forEach((modal) => {
-          modal.addEventListener("click", (event) => {
-            if (event.target === modal) closeModal(modal);
-          });
-        });
-
-        document.addEventListener("keydown", (event) => {
-          if (event.key === "Escape") {
-            closeModal(els.welcomeModal);
-            closeModal(els.resultModal);
-          }
-        });
+      function openModal(modal) {
+        modal.classList.add("show");
       }
 
-      function initConfettiCanvas() {
-        resizeCanvases();
+      function closeModal(modal) {
+        modal.classList.remove("show");
       }
-
-      let confettiPieces = [];
-      let confettiFrame = null;
 
       function randomBetween(min, max) {
         return Math.random() * (max - min) + min;
@@ -2214,9 +2135,9 @@
         const height = window.innerHeight;
         const colors = ["#ffd86a", "#ff4d95", "#7e54ff", "#79f0ff", "#fff2c9", "#43f2a6"];
 
-        confettiPieces = Array.from({ length: 160 }, () => ({
-          x: width / 2 + randomBetween(-40, 40),
-          y: height * 0.24 + randomBetween(-20, 20),
+        confettiPieces = Array.from({ length: prefersReducedMotion ? 40 : 140 }, () => ({
+          x: width / 2 + randomBetween(-50, 50),
+          y: height * 0.22 + randomBetween(-20, 20),
           vx: randomBetween(-7.2, 7.2),
           vy: randomBetween(-13, -4.5),
           size: randomBetween(5, 11),
@@ -2265,11 +2186,41 @@
         tick();
       }
 
+      function bindEvents() {
+        window.addEventListener("resize", resizeCanvases, { passive: true });
+
+        els.spinDemoBtn.addEventListener("click", () => handleSpin("demo"));
+        els.spinPaidBtn.addEventListener("click", () => handleSpin("paid"));
+        els.goBuyBtn.addEventListener("click", () => {
+          document.querySelector(".right-col")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+
+        els.qtyMinusBtn.addEventListener("click", () => changeQty(-1));
+        els.qtyPlusBtn.addEventListener("click", () => changeQty(1));
+        els.buyNowBtn.addEventListener("click", handlePurchase);
+        els.copyPaymentBtn.addEventListener("click", copyPaymentLink);
+
+        els.countrySwitch.addEventListener("click", (event) => {
+          const btn = event.target.closest(".chip");
+          if (!btn) return;
+          setCountry(btn.dataset.country || "UY");
+        });
+
+        els.resultCloseBtn.addEventListener("click", () => closeModal(els.resultModal));
+        els.resultSpinAgainBtn.addEventListener("click", () => closeModal(els.resultModal));
+        els.resultModal.addEventListener("click", (event) => {
+          if (event.target === els.resultModal) closeModal(els.resultModal);
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            closeModal(els.resultModal);
+          }
+        });
+      }
+
       function init() {
         STATE.displayName = sanitizeDisplayName(STATE.displayName);
-        els.playerNameInput.value = STATE.displayName;
-        els.welcomeNameInput.value = STATE.displayName;
-
         renderPrizeList();
         renderHistory();
         updateAllCounters();
@@ -2277,9 +2228,7 @@
         updateButtons();
         setCountry("UY");
         bindEvents();
-        initConfettiCanvas();
-        maybeOpenWelcome();
-
+        resizeCanvases();
         showToast("Todo listo", "La ruleta premium está preparada para jugar.", "info", 2200);
       }
 

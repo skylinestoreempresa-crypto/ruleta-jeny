@@ -85,6 +85,11 @@
         linear-gradient(180deg, #050106 0%, #12030d 24%, #170511 45%, #0a0208 100%);
     }
 
+    body.modal-open{
+      overflow:hidden;
+      touch-action:none;
+    }
+
     body::before{
       content:"";
       position:fixed;
@@ -790,6 +795,12 @@
         0 12px 24px rgba(19,212,232,.18);
     }
 
+    .btn-outline{
+      color:#fff;
+      border:1px solid var(--line-1);
+      background:rgba(255,255,255,.06);
+    }
+
     .buy-box{
       display:grid;
       gap:12px;
@@ -1055,6 +1066,7 @@
     .toast.success{border-color:rgba(67,242,166,.22)}
     .toast.error{border-color:rgba(255,109,127,.22)}
     .toast.info{border-color:rgba(107,234,255,.20)}
+    .toast.warn{border-color:rgba(255,202,107,.25)}
 
     @keyframes toastIn{
       to{opacity:1;transform:translateY(0) scale(1)}
@@ -1158,7 +1170,6 @@
 </head>
 <body>
   <canvas id="confettiCanvas" class="confetti-canvas" aria-hidden="true"></canvas>
-
   <div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="true"></div>
 
   <div class="modal-backdrop show" id="nameModal" role="dialog" aria-modal="true" aria-labelledby="nameModalTitle">
@@ -1167,6 +1178,7 @@
         <h2 class="modal-title" id="nameModalTitle">Antes de jugar</h2>
         <p class="modal-subtitle">
           Ingresá tu nombre para personalizar la ruleta, registrar tu compra y mostrar tu premio correctamente.
+          Si escribís <strong>admin</strong>, entrás al panel administrador.
         </p>
       </div>
       <div class="modal-body">
@@ -1178,15 +1190,18 @@
             type="text"
             maxlength="40"
             autocomplete="off"
+            spellcheck="false"
             placeholder="Ejemplo: Gabriel"
             value="{{ display_name|default('', true)|e }}"
           >
         </div>
-        <div class="hint">
+
+        <div class="hint" id="nameHintText">
           Este nombre se usa para saludarte, identificar tu compra y dejar más claro el premio ganado.
         </div>
+
         <div class="modal-actions">
-          <button class="btn btn-cyan" id="skipNameBtn" type="button">Seguir igual</button>
+          <button class="btn btn-outline" id="skipNameBtn" type="button">Validar nombre</button>
           <button class="btn btn-accent" id="saveNameBtn" type="button">Guardar nombre</button>
         </div>
       </div>
@@ -1234,7 +1249,7 @@
       <aside class="card hero">
         <div class="panel">
           <div class="hero-banner">
-            <h1 id="heroGreeting">Hola, {{ display_name|default('Jugador', true)|e }}</h1>
+            <h1 id="heroGreeting">Hola, Jugador</h1>
             <p>
               Girá una ruleta premium con mejor diseño, más presencia visual, mejor claridad y una experiencia mucho más seria y atractiva.
             </p>
@@ -1333,7 +1348,7 @@
         </div>
 
         <div class="footer-note">
-          Ultra premium UI · responsive · ruleta 3D · redirección directa al pago · nombre obligatorio al ingresar
+          Ultra premium UI · responsive · ruleta 3D · redirección directa al pago · nombre obligatorio · acceso admin por palabra admin
         </div>
       </aside>
 
@@ -1369,7 +1384,7 @@
         <div class="wheel-status">
           <div class="status-box">
             <div class="status-main">
-              <div class="status-title" id="statusTitle">Bienvenido/a, {{ display_name|default('Jugador', true)|e }}</div>
+              <div class="status-title" id="statusTitle">Bienvenido/a, Jugador</div>
               <div class="status-subtitle" id="statusSubtitle">
                 Usá tu demo gratis o comprá fichas para girar.
               </div>
@@ -1457,6 +1472,7 @@
 
           <div class="button-stack" style="margin-top:12px;">
             <button class="btn btn-accent" id="adminAddFichaBtn" type="button">＋ Agregar ficha</button>
+            <button class="btn btn-outline" id="adminRefreshBtn" type="button">↻ Actualizar lista</button>
           </div>
         </div>
       </aside>
@@ -1469,6 +1485,10 @@
 
       const rawPrizes = {{ prizes|safe }};
       const rawUiConfig = {{ ui_config|safe if ui_config is defined else "{}" }};
+      const STORAGE_PREFIX = "ruleta_premium_v2";
+      const HISTORY_STORAGE_KEY = `${STORAGE_PREFIX}_history`;
+      const SETTINGS_STORAGE_KEY = `${STORAGE_PREFIX}_settings`;
+      const INVALID_DEFAULT_NAMES = new Set(["", "jugador", "player", "guest", "usuario", "user", "cliente", "client"]);
 
       const STATE = {
         botName: String(rawUiConfig.botName || {{ bot_name|tojson|safe }} || "Ruleta Premium"),
@@ -1489,10 +1509,14 @@
         selectedCountry: "UY",
         qty: 1,
         spinning: false,
+        buying: false,
+        savingName: false,
         history: [],
         rotationDeg: 0,
         isAdminMode: false,
-        buyers: []
+        buyers: [],
+        hasLoadedAdminOnce: false,
+        pendingOpenPayment: false
       };
 
       const els = {
@@ -1537,18 +1561,22 @@
         playerNameInput: document.getElementById("playerNameInput"),
         saveNameBtn: document.getElementById("saveNameBtn"),
         skipNameBtn: document.getElementById("skipNameBtn"),
+        nameHintText: document.getElementById("nameHintText"),
         adminPanel: document.getElementById("adminPanel"),
         adminBuyersList: document.getElementById("adminBuyersList"),
-        adminAddFichaBtn: document.getElementById("adminAddFichaBtn")
+        adminAddFichaBtn: document.getElementById("adminAddFichaBtn"),
+        adminRefreshBtn: document.getElementById("adminRefreshBtn")
       };
 
       const wheelCtx = els.wheelCanvas.getContext("2d");
       const confettiCtx = els.confettiCanvas.getContext("2d");
       const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const telegramWebApp = window.Telegram?.WebApp || null;
 
       let confettiPieces = [];
       let confettiFrame = null;
       let audioCtx = null;
+      let resizeRaf = 0;
 
       function clamp(value, min, max) {
         return Math.min(max, Math.max(min, value));
@@ -1563,8 +1591,13 @@
         return normalizeText(value, "").slice(0, 40);
       }
 
+      function hasRealName(value) {
+        const text = sanitizeDisplayName(value).toLowerCase();
+        return !!text && !INVALID_DEFAULT_NAMES.has(text);
+      }
+
       function escapeHtml(value) {
-        return String(value)
+        return String(value ?? "")
           .replaceAll("&", "&amp;")
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;")
@@ -1573,7 +1606,47 @@
       }
 
       function isAdminKeyword(value) {
-        return normalizeText(value).toLowerCase() === "admin";
+        return sanitizeDisplayName(value).toLowerCase() === "admin";
+      }
+
+      function safeNameForUI() {
+        return hasRealName(STATE.displayName) ? STATE.displayName : "Jugador";
+      }
+
+      function persistSettings() {
+        try {
+          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+            selectedCountry: STATE.selectedCountry,
+            qty: STATE.qty
+          }));
+        } catch {}
+      }
+
+      function restoreSettings() {
+        try {
+          const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+          if (!raw) return;
+          const data = JSON.parse(raw);
+          STATE.selectedCountry = data?.selectedCountry === "AR" ? "AR" : "UY";
+          STATE.qty = clamp(Number(data?.qty || 1), 1, STATE.maxPurchaseQty);
+        } catch {}
+      }
+
+      function persistHistory() {
+        try {
+          sessionStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(STATE.history.slice(0, 10)));
+        } catch {}
+      }
+
+      function restoreHistory() {
+        try {
+          const raw = sessionStorage.getItem(HISTORY_STORAGE_KEY);
+          if (!raw) return;
+          const data = JSON.parse(raw);
+          if (Array.isArray(data)) {
+            STATE.history = data.filter(Boolean).slice(0, 10);
+          }
+        } catch {}
       }
 
       function moneyFromUyu(amountUyu, currency = STATE.currency) {
@@ -1603,6 +1676,11 @@
         return STATE.selectedCountry === "AR" ? "💳 Pagar en ARS" : "💳 Pagar en UYU";
       }
 
+      function setBodyModalState() {
+        const anyModalOpen = els.nameModal.classList.contains("show") || els.resultModal.classList.contains("show");
+        document.body.classList.toggle("modal-open", anyModalOpen);
+      }
+
       function showToast(title, text = "", type = "info", duration = 2800) {
         const toast = document.createElement("div");
         toast.className = `toast ${type}`;
@@ -1619,25 +1697,38 @@
         }, duration);
       }
 
-      async function api(url, payload) {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
+      async function api(url, payload, timeoutMs = 12000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-        let data = null;
         try {
-          data = await res.json();
-        } catch {
-          throw new Error("Respuesta inválida del servidor.");
-        }
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
 
-        if (!res.ok || !data?.ok) {
-          throw new Error(data?.error || data?.message || "No se pudo completar la acción.");
-        }
+          let data = null;
+          try {
+            data = await res.json();
+          } catch {
+            throw new Error("Respuesta inválida del servidor.");
+          }
 
-        return data;
+          if (!res.ok || !data?.ok) {
+            throw new Error(data?.error || data?.message || "No se pudo completar la acción.");
+          }
+
+          return data;
+        } catch (error) {
+          if (error?.name === "AbortError") {
+            throw new Error("La solicitud tardó demasiado. Probá de nuevo.");
+          }
+          throw error;
+        } finally {
+          clearTimeout(timer);
+        }
       }
 
       function currentPayload(extra = {}) {
@@ -1649,6 +1740,21 @@
           currency: STATE.currency,
           ...extra
         };
+      }
+
+      function setButtonBusy(button, busy, busyText = "") {
+        if (!button) return;
+        if (busy) {
+          if (!button.dataset.originalText) {
+            button.dataset.originalText = button.textContent;
+          }
+          button.textContent = busyText || button.textContent;
+          button.disabled = true;
+        } else {
+          if (button.dataset.originalText) {
+            button.textContent = button.dataset.originalText;
+          }
+        }
       }
 
       function updateAllCounters() {
@@ -1667,9 +1773,16 @@
       }
 
       function updateGreeting() {
-        const safeName = STATE.displayName || "Jugador";
+        const safeName = safeNameForUI();
         els.heroGreeting.textContent = `Hola, ${safeName}`;
         els.statusTitle.textContent = `Bienvenido/a, ${safeName}`;
+
+        if (STATE.isAdminMode) {
+          els.statusSubtitle.textContent = "Modo administrador activo. Podés revisar compradores y cargar fichas.";
+          els.statusChip.textContent = "🛠 Admin activo";
+          return;
+        }
+
         els.statusSubtitle.textContent = STATE.demoSpinsLeft > 0
           ? `Tenés ${STATE.demoSpinsLeft} demo gratis disponible${STATE.demoSpinsLeft > 1 ? "s" : ""}.`
           : `Tu demo gratis ya fue usada. Comprá fichas o girá con saldo.`;
@@ -1684,11 +1797,14 @@
       }
 
       function updateButtons() {
-        els.spinDemoBtn.disabled = STATE.spinning || STATE.demoSpinsLeft <= 0;
-        els.spinPaidBtn.disabled = STATE.spinning || STATE.fichas <= 0;
-        els.buyNowBtn.disabled = STATE.spinning;
-        els.qtyMinusBtn.disabled = STATE.qty <= 1;
-        els.qtyPlusBtn.disabled = STATE.qty >= STATE.maxPurchaseQty;
+        const missingName = !hasRealName(STATE.displayName) && !STATE.isAdminMode;
+        els.spinDemoBtn.disabled = STATE.spinning || STATE.buying || STATE.demoSpinsLeft <= 0 || missingName;
+        els.spinPaidBtn.disabled = STATE.spinning || STATE.buying || STATE.fichas <= 0 || missingName;
+        els.buyNowBtn.disabled = STATE.spinning || STATE.buying || missingName;
+        els.qtyMinusBtn.disabled = STATE.qty <= 1 || STATE.buying;
+        els.qtyPlusBtn.disabled = STATE.qty >= STATE.maxPurchaseQty || STATE.buying;
+        els.saveNameBtn.disabled = STATE.savingName;
+        els.skipNameBtn.disabled = STATE.savingName;
       }
 
       function setAdminMode(enabled) {
@@ -1696,6 +1812,8 @@
         if (els.adminPanel) {
           els.adminPanel.classList.toggle("hidden", !STATE.isAdminMode);
         }
+        updateGreeting();
+        updateButtons();
       }
 
       function renderAdminBuyers() {
@@ -1723,14 +1841,20 @@
               <div class="item-badge">${escapeHtml(String(buyer.qty || 1))} ficha(s)</div>
             </div>
             <div class="item-meta">
-              ${escapeHtml(buyer.country || "Sin país")} · ${escapeHtml(buyer.status || "pendiente")}
+              ${escapeHtml(countryLabel(String(buyer.country || "UY").toUpperCase()))} · ${escapeHtml(buyer.status || "pendiente")}
             </div>
           </div>
         `).join("");
       }
 
-      async function loadAdminBuyers() {
+      async function loadAdminBuyers(force = false) {
         if (!STATE.isAdminMode) return;
+        if (!STATE.userId) {
+          renderAdminBuyers();
+          return;
+        }
+
+        if (STATE.hasLoadedAdminOnce && !force) return;
 
         try {
           const data = await api("/api/admin/buyers", {
@@ -1739,6 +1863,7 @@
           });
 
           STATE.buyers = Array.isArray(data.buyers) ? data.buyers : [];
+          STATE.hasLoadedAdminOnce = true;
           renderAdminBuyers();
         } catch (error) {
           STATE.buyers = [];
@@ -1768,7 +1893,8 @@
           });
 
           showToast("Admin", data.message || "Fichas agregadas correctamente.", "success");
-          await loadAdminBuyers();
+          STATE.hasLoadedAdminOnce = false;
+          await loadAdminBuyers(true);
         } catch (error) {
           showToast("Admin", error.message || "No se pudieron agregar fichas.", "error");
         }
@@ -1777,7 +1903,11 @@
       function renderPrizeList() {
         els.prizeList.innerHTML = "";
 
-        STATE.prizes.forEach((prize) => {
+        const prizes = Array.isArray(STATE.prizes) && STATE.prizes.length
+          ? STATE.prizes
+          : [{ name: "Premio", uyu_price: 0, chance: 100 }];
+
+        prizes.forEach((prize) => {
           const item = document.createElement("div");
           item.className = "item";
           item.innerHTML = `
@@ -1786,7 +1916,7 @@
               <div class="item-badge">${escapeHtml(moneyFromUyu(prize.uyu_price, STATE.currency))}</div>
             </div>
             <div class="item-meta">
-              Probabilidad visible: ${escapeHtml(String(prize.chance))}% · Premio premium
+              Probabilidad visible: ${escapeHtml(String(prize.chance ?? 0))}% · Premio premium
             </div>
           `;
           els.prizeList.appendChild(item);
@@ -1833,18 +1963,21 @@
       }
 
       function resizeCanvases() {
-        const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-        const wheelRect = els.wheelCanvas.getBoundingClientRect();
-        const wheelSize = Math.max(360, Math.round(Math.max(wheelRect.width, wheelRect.height)));
-        els.wheelCanvas.width = Math.round(wheelSize * dpr);
-        els.wheelCanvas.height = Math.round(wheelSize * dpr);
-        wheelCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cancelAnimationFrame(resizeRaf);
+        resizeRaf = requestAnimationFrame(() => {
+          const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+          const wheelRect = els.wheelCanvas.getBoundingClientRect();
+          const wheelSize = Math.max(320, Math.round(Math.max(wheelRect.width, wheelRect.height || wheelRect.width)));
+          els.wheelCanvas.width = Math.round(wheelSize * dpr);
+          els.wheelCanvas.height = Math.round(wheelSize * dpr);
+          wheelCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        els.confettiCanvas.width = Math.round(window.innerWidth * dpr);
-        els.confettiCanvas.height = Math.round(window.innerHeight * dpr);
-        confettiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          els.confettiCanvas.width = Math.round(window.innerWidth * dpr);
+          els.confettiCanvas.height = Math.round(window.innerHeight * dpr);
+          confettiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        drawWheel(STATE.rotationDeg);
+          drawWheel(STATE.rotationDeg);
+        });
       }
 
       function segmentPalette(index) {
@@ -1892,7 +2025,7 @@
 
       function drawWheel(rotationDeg = 0) {
         const rect = els.wheelCanvas.getBoundingClientRect();
-        const size = Math.max(320, rect.width);
+        const size = Math.max(320, rect.width || 320);
         const center = size / 2;
         const radius = size / 2 - 10;
         const innerRadius = radius * 0.18;
@@ -1998,7 +2131,7 @@
           audioCtx = new AudioContextClass();
         }
         if (audioCtx.state === "suspended") {
-          audioCtx.resume();
+          audioCtx.resume().catch(() => {});
         }
         return audioCtx;
       }
@@ -2127,6 +2260,8 @@
           mode,
           timeLabel: nowTimeLabel()
         });
+        STATE.history = STATE.history.slice(0, 10);
+        persistHistory();
         renderHistory();
       }
 
@@ -2134,55 +2269,101 @@
         if (!profile) return;
         STATE.fichas = Number(profile.fichas ?? STATE.fichas);
         STATE.demoSpinsLeft = Number(profile.demo_spins_left ?? STATE.demoSpinsLeft);
-        STATE.displayName = sanitizeDisplayName(profile.display_name || STATE.displayName);
+
+        const incomingName = sanitizeDisplayName(profile.display_name || STATE.displayName);
+        if (hasRealName(incomingName) || isAdminKeyword(incomingName)) {
+          STATE.displayName = incomingName;
+        }
+
         updateAllCounters();
         updateGreeting();
         updateButtons();
       }
 
-      async function saveName(forceClose = true) {
+      async function saveProfileNameIfPossible(value) {
+        if (!STATE.userId) return;
+        try {
+          await api("/api/profile", currentPayload({ display_name: value }));
+        } catch {}
+      }
+
+      async function activateAdminMode() {
+        STATE.displayName = "Admin";
+        setAdminMode(true);
+        await saveProfileNameIfPossible("Admin");
+        renderAdminBuyers();
+        await loadAdminBuyers(true);
+        updateGreeting();
+      }
+
+      async function validateAndSaveName(forceClose = true) {
         const rawValue = els.playerNameInput.value;
         const value = sanitizeDisplayName(rawValue);
 
-        if (!value) {
-          showToast("Falta nombre", "Escribí tu nombre para personalizar la ruleta.", "error");
+        if (isAdminKeyword(value)) {
+          STATE.savingName = true;
+          updateButtons();
+          setButtonBusy(els.saveNameBtn, true, "Entrando...");
+          setButtonBusy(els.skipNameBtn, true, "Entrando...");
+          try {
+            await activateAdminMode();
+            if (forceClose) closeModal(els.nameModal);
+            showToast("Modo admin", "Panel admin activado.", "success");
+            return true;
+          } finally {
+            STATE.savingName = false;
+            setButtonBusy(els.saveNameBtn, false);
+            setButtonBusy(els.skipNameBtn, false);
+            updateButtons();
+          }
+        }
+
+        if (!hasRealName(value)) {
+          showToast("Nombre requerido", "Escribí un nombre válido para continuar.", "error");
           els.playerNameInput.focus();
           return false;
         }
 
-        if (isAdminKeyword(value)) {
-          STATE.displayName = "Admin";
-          setAdminMode(true);
-          updateGreeting();
-          renderAdminBuyers();
-          await loadAdminBuyers();
-
-          if (forceClose) closeModal(els.nameModal);
-          showToast("Modo admin", "Panel admin activado.", "success");
-          return true;
-        }
-
-        setAdminMode(false);
-        STATE.displayName = value;
+        STATE.savingName = true;
+        updateButtons();
+        setButtonBusy(els.saveNameBtn, true, "Guardando...");
+        setButtonBusy(els.skipNameBtn, true, "Validando...");
 
         try {
-          if (STATE.userId) {
-            await api("/api/profile", currentPayload({ display_name: value }));
-          }
-        } catch {}
+          setAdminMode(false);
+          STATE.displayName = value;
+          await saveProfileNameIfPossible(value);
+          updateGreeting();
 
-        updateGreeting();
-        if (forceClose) closeModal(els.nameModal);
-        showToast("Nombre guardado", `Bienvenido/a ${value}`, "success");
-        return true;
+          if (forceClose) closeModal(els.nameModal);
+
+          showToast("Nombre guardado", `Bienvenido/a ${value}`, "success");
+          return true;
+        } finally {
+          STATE.savingName = false;
+          setButtonBusy(els.saveNameBtn, false);
+          setButtonBusy(els.skipNameBtn, false);
+          updateButtons();
+        }
+      }
+
+      function requireValidName(message) {
+        if (STATE.isAdminMode) return true;
+        if (hasRealName(STATE.displayName)) return true;
+
+        openModal(els.nameModal);
+        showToast("Primero tu nombre", message, "error");
+        setTimeout(() => {
+          els.playerNameInput?.focus();
+          els.playerNameInput?.select();
+        }, 120);
+        return false;
       }
 
       async function handleSpin(mode) {
-        if (STATE.spinning) return;
+        if (STATE.spinning || STATE.buying) return;
 
-        if (!STATE.displayName) {
-          openModal(els.nameModal);
-          showToast("Primero tu nombre", "Ingresá tu nombre antes de jugar.", "error");
+        if (!requireValidName("Ingresá tu nombre antes de jugar.")) {
           return;
         }
 
@@ -2196,11 +2377,10 @@
           const prizeName = data?.prize?.name || "Premio";
           const prizeValue = data?.prize?.label || "";
           const thanks = data?.messages?.thanks || `Gracias por jugar en ${STATE.botName}`;
-          const resultText = data?.messages?.result || `${STATE.displayName}, tu premio es ${prizeName}`;
+          const resultText = data?.messages?.result || `${safeNameForUI()}, tu premio es ${prizeName}`;
           const subtitle = data?.messages?.subtitle || prizeValue;
 
           await animateSpinToPrize(prizeName);
-
           updateStateFromProfile(data.profile);
           addHistory(prizeName, prizeValue, mode);
 
@@ -2222,7 +2402,7 @@
           }
 
           openModal(els.resultModal);
-          showToast("¡Giro completado!", `${STATE.displayName}, tu premio fue ${prizeName}.`, "success", 3600);
+          showToast("¡Giro completado!", `${safeNameForUI()}, tu premio fue ${prizeName}.`, "success", 3600);
         } catch (error) {
           STATE.spinning = false;
           updateButtons();
@@ -2233,9 +2413,9 @@
       }
 
       async function handlePurchase() {
-        if (!STATE.displayName) {
-          openModal(els.nameModal);
-          showToast("Primero tu nombre", "Ingresá tu nombre antes de comprar fichas.", "error");
+        if (STATE.buying || STATE.spinning) return;
+
+        if (!requireValidName("Ingresá tu nombre antes de comprar fichas.")) {
           return;
         }
 
@@ -2243,6 +2423,10 @@
           showToast("Falta user_id", "Abrí la ruleta desde Telegram para identificar al jugador.", "error");
           return;
         }
+
+        STATE.buying = true;
+        updateButtons();
+        setButtonBusy(els.buyNowBtn, true, "Procesando...");
 
         try {
           const data = await api("/api/create-pending-purchase", currentPayload({
@@ -2258,9 +2442,10 @@
 
           showToast("Compra registrada", `ID: ${data.purchase_id}. Te enviamos al pago.`, "success", 3400);
 
+          STATE.hasLoadedAdminOnce = false;
+
           if (paymentUrl) {
             setTimeout(() => {
-              const telegramWebApp = window.Telegram?.WebApp;
               if (telegramWebApp?.openLink) {
                 telegramWebApp.openLink(paymentUrl);
               } else {
@@ -2272,6 +2457,10 @@
           }
         } catch (error) {
           showToast("No se pudo registrar la compra", error.message || "Error inesperado.", "error", 3800);
+        } finally {
+          STATE.buying = false;
+          setButtonBusy(els.buyNowBtn, false);
+          updateButtons();
         }
       }
 
@@ -2280,22 +2469,26 @@
         [...els.countrySwitch.querySelectorAll(".chip")].forEach((chip) => {
           chip.classList.toggle("active", chip.dataset.country === STATE.selectedCountry);
         });
+        persistSettings();
         updateAllCounters();
         updateButtons();
       }
 
       function changeQty(delta) {
         STATE.qty = clamp(STATE.qty + delta, 1, STATE.maxPurchaseQty);
+        persistSettings();
         updateAllCounters();
         updateButtons();
       }
 
       function openModal(modal) {
         modal.classList.add("show");
+        setBodyModalState();
       }
 
       function closeModal(modal) {
         modal.classList.remove("show");
+        setBodyModalState();
       }
 
       function randomBetween(min, max) {
@@ -2361,6 +2554,10 @@
       function bindEvents() {
         window.addEventListener("resize", resizeCanvases, { passive: true });
 
+        document.addEventListener("pointerdown", () => {
+          ensureAudio();
+        }, { once: true });
+
         els.spinDemoBtn.addEventListener("click", () => handleSpin("demo"));
         els.spinPaidBtn.addEventListener("click", () => handleSpin("paid"));
         els.goBuyBtn.addEventListener("click", () => {
@@ -2377,62 +2574,103 @@
           setCountry(btn.dataset.country || "UY");
         });
 
-        els.saveNameBtn.addEventListener("click", () => saveName(true));
+        els.saveNameBtn.addEventListener("click", () => validateAndSaveName(true));
+        els.skipNameBtn.addEventListener("click", () => validateAndSaveName(true));
 
-        els.skipNameBtn.addEventListener("click", async () => {
-          const raw = sanitizeDisplayName(els.playerNameInput.value) || "Jugador";
-
-          if (isAdminKeyword(raw)) {
-            STATE.displayName = "Admin";
-            setAdminMode(true);
-            updateGreeting();
-            renderAdminBuyers();
-            await loadAdminBuyers();
-            closeModal(els.nameModal);
-            showToast("Modo admin", "Panel admin activado.", "success");
-            return;
+        els.playerNameInput.addEventListener("input", () => {
+          const currentValue = sanitizeDisplayName(els.playerNameInput.value);
+          if (isAdminKeyword(currentValue)) {
+            els.nameHintText.textContent = "Vas a entrar al panel administrador.";
+          } else if (hasRealName(currentValue)) {
+            els.nameHintText.textContent = "Nombre válido. Se usará para saludarte, comprar y mostrar premios.";
+          } else {
+            els.nameHintText.textContent = "Este nombre se usa para saludarte, identificar tu compra y dejar más claro el premio ganado.";
           }
-
-          STATE.displayName = raw;
-          setAdminMode(false);
-          updateGreeting();
-          closeModal(els.nameModal);
         });
 
         els.playerNameInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            saveName(true);
+            validateAndSaveName(true);
           }
         });
 
         els.resultCloseBtn.addEventListener("click", () => closeModal(els.resultModal));
         els.resultSpinAgainBtn.addEventListener("click", () => closeModal(els.resultModal));
+
         els.resultModal.addEventListener("click", (event) => {
           if (event.target === els.resultModal) closeModal(els.resultModal);
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            if (els.resultModal.classList.contains("show")) {
+              closeModal(els.resultModal);
+            } else if (els.nameModal.classList.contains("show")) {
+              event.preventDefault();
+              els.playerNameInput.focus();
+            }
+          }
         });
 
         if (els.adminAddFichaBtn) {
           els.adminAddFichaBtn.addEventListener("click", adminAddFicha);
         }
+
+        if (els.adminRefreshBtn) {
+          els.adminRefreshBtn.addEventListener("click", async () => {
+            STATE.hasLoadedAdminOnce = false;
+            await loadAdminBuyers(true);
+            showToast("Admin", "Lista actualizada.", "info");
+          });
+        }
       }
 
-      function init() {
+      async function initAdminIfNeeded() {
+        if (isAdminKeyword(STATE.displayName)) {
+          await activateAdminMode();
+        } else {
+          setAdminMode(false);
+        }
+      }
+
+      function initTelegramUI() {
+        if (!telegramWebApp) return;
+        try {
+          telegramWebApp.ready();
+          telegramWebApp.expand?.();
+        } catch {}
+      }
+
+      async function init() {
+        initTelegramUI();
+        restoreSettings();
+        restoreHistory();
+
         STATE.displayName = sanitizeDisplayName(STATE.displayName);
+
+        if (!hasRealName(STATE.displayName) && !isAdminKeyword(STATE.displayName)) {
+          STATE.displayName = "";
+        }
 
         renderPrizeList();
         renderHistory();
         updateAllCounters();
         updateGreeting();
         updateButtons();
-        setCountry("UY");
         bindEvents();
         resizeCanvases();
-        setAdminMode(false);
+        setCountry(STATE.selectedCountry);
         renderAdminBuyers();
 
-        if (!STATE.displayName) {
+        await initAdminIfNeeded();
+
+        if (!hasRealName(STATE.displayName) && !STATE.isAdminMode) {
           openModal(els.nameModal);
+          setTimeout(() => {
+            els.playerNameInput?.focus();
+            els.playerNameInput?.select();
+          }, 140);
         } else {
           closeModal(els.nameModal);
         }

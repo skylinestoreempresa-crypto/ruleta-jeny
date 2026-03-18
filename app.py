@@ -48,7 +48,13 @@ def env_bool(name: str, default: bool = False) -> bool:
     value = str(os.environ.get(name, str(default))).strip().lower()
     return value in {"1", "true", "yes", "y", "on"}
 
-def env_int(name: str, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
+
+def env_int(
+    name: str,
+    default: int,
+    min_value: int | None = None,
+    max_value: int | None = None,
+) -> int:
     raw = os.environ.get(name, str(default))
     try:
         value = int(str(raw).strip())
@@ -61,7 +67,13 @@ def env_int(name: str, default: int, min_value: int | None = None, max_value: in
         value = min(max_value, value)
     return value
 
-def safe_int(value: Any, default: int = 0, min_value: int | None = None, max_value: int | None = None) -> int:
+
+def safe_int(
+    value: Any,
+    default: int = 0,
+    min_value: int | None = None,
+    max_value: int | None = None,
+) -> int:
     try:
         num = int(value)
     except (TypeError, ValueError):
@@ -73,9 +85,11 @@ def safe_int(value: Any, default: int = 0, min_value: int | None = None, max_val
         num = min(max_value, num)
     return num
 
+
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 BOT_NAME = os.environ.get("BOT_NAME", "Ruleta Jeny").strip()
 APP_SECRET_KEY = os.environ.get("APP_SECRET_KEY", "ruleta_default_secret_key").strip()
+ADMIN_PANEL_KEY = os.environ.get("ADMIN_PANEL_KEY", "Admin").strip()
 
 DEFAULT_CURRENCY = os.environ.get("DEFAULT_CURRENCY", "UYU").strip().upper()
 WEBAPP_BASE_URL = os.environ.get(
@@ -108,6 +122,7 @@ ADMIN_IDS = {
 TICKET_PRICE_UYU = env_int("TICKET_PRICE_UYU", 250, min_value=1)
 DEMO_SPINS = env_int("DEMO_SPINS", 1, min_value=0, max_value=10)
 MAX_PURCHASE_QTY = env_int("MAX_PURCHASE_QTY", 100, min_value=1, max_value=1000)
+MAX_ADMIN_BUYERS = env_int("MAX_ADMIN_BUYERS", 60, min_value=1, max_value=500)
 
 REAL_PRIZES = [
     {"name": "💋 Pose favorita", "chance": 35.9, "uyu_price": 200, "weight": 359},
@@ -144,6 +159,7 @@ def is_valid_payment_link(value: str) -> bool:
     text = str(value or "").strip().lower()
     return text.startswith("https://") and "mpago.la/" in text
 
+
 def validate_startup_config() -> None:
     if not BOT_NAME:
         logger.warning("BOT_NAME está vacío. Se usará el nombre por defecto.")
@@ -155,9 +171,13 @@ def validate_startup_config() -> None:
         logger.warning("MP_LINK_AR no parece válido: %s", MP_LINK_AR)
     if not is_valid_payment_link(MP_LINK_UY):
         logger.warning("MP_LINK_UY no parece válido: %s", MP_LINK_UY)
+    if not ADMIN_PANEL_KEY:
+        logger.warning("ADMIN_PANEL_KEY vacío. Se usará la palabra por defecto.")
+
 
 def resolve_display_name(raw_display_name: str, full_name: str, username: str) -> str:
     return sanitize_name(raw_display_name or full_name or username or "Jugador")
+
 
 def normalize_country(value: str) -> str:
     country = str(value or "UY").strip().upper()
@@ -165,8 +185,10 @@ def normalize_country(value: str) -> str:
         return "AR"
     return "UY"
 
+
 def resolve_currency(value: str) -> str:
     return normalize_currency(value or DEFAULT_CURRENCY, DEFAULT_CURRENCY)
+
 
 def ensure_profile(
     user_id: Any,
@@ -186,6 +208,7 @@ def ensure_profile(
         default_currency=DEFAULT_CURRENCY,
     )
 
+
 def profile_payload(profile: dict[str, Any]) -> dict[str, Any]:
     return {
         **profile,
@@ -193,6 +216,7 @@ def profile_payload(profile: dict[str, Any]) -> dict[str, Any]:
         "demo_spins_left": safe_int(profile.get("demo_spins_left", 0), 0, 0),
         "wins": safe_int(profile.get("wins", 0), 0, 0),
     }
+
 
 def base_ui_config(profile: dict[str, Any], currency: str) -> dict[str, Any]:
     return {
@@ -232,13 +256,90 @@ def base_ui_config(profile: dict[str, Any], currency: str) -> dict[str, Any]:
         },
     }
 
+
 def json_error(message: str, status: int = 400):
     return jsonify({"ok": False, "error": message}), status
 
-def require_user_identity(user_id: Any):
-    if user_id is None or str(user_id).strip() == "":
+
+def require_user_identity(user_id: Any) -> bool:
+    return not (user_id is None or str(user_id).strip() == "")
+
+
+def is_admin_panel_authorized(user_id: Any, admin_key: str) -> bool:
+    if str(admin_key or "").strip() == ADMIN_PANEL_KEY:
+        return True
+
+    try:
+        uid = int(str(user_id).strip())
+    except (TypeError, ValueError):
         return False
-    return True
+
+    return is_admin(uid, ADMIN_IDS)
+
+
+def normalize_name_key(value: str) -> str:
+    return sanitize_name(value).strip().lower()
+
+
+def find_user_by_display_name(display_name: str) -> tuple[str | None, dict[str, Any] | None]:
+    target = normalize_name_key(display_name)
+    if not target:
+        return None, None
+
+    users = load_users(USERS_FILE)
+
+    for key, profile in users.items():
+        profile_name = normalize_name_key(profile.get("display_name", ""))
+        if profile_name == target:
+            return key, profile
+
+    return None, None
+
+
+def list_recent_buyers(limit: int = MAX_ADMIN_BUYERS) -> list[dict[str, Any]]:
+    purchases = load_purchases(PURCHASES_FILE)
+    users = load_users(USERS_FILE)
+
+    normalized: list[dict[str, Any]] = []
+    for item in reversed(purchases[-limit:]):
+        user_key = str(item.get("user_key", "")).strip()
+        profile = users.get(user_key, {}) if user_key else {}
+        normalized.append(
+            {
+                "purchase_id": item.get("purchase_id", ""),
+                "display_name": item.get("display_name") or profile.get("display_name", "Jugador"),
+                "user_key": user_key,
+                "country": item.get("country", "UY"),
+                "qty": safe_int(item.get("qty", 1), 1, 1),
+                "status": item.get("status", "pending"),
+                "created_at": item.get("created_at", ""),
+            }
+        )
+    return normalized
+
+
+def add_fichas_by_user_key(user_key: str, qty: int) -> dict[str, Any] | None:
+    qty = safe_int(qty, default=0, min_value=1)
+    users = load_users(USERS_FILE)
+
+    profile = users.get(str(user_key))
+    if not profile:
+        return None
+
+    profile["fichas"] = safe_int(profile.get("fichas", 0), 0, 0) + qty
+    profile["updated_at"] = now_iso()
+    users[str(user_key)] = profile
+    save_users(users, USERS_FILE)
+    return profile
+
+
+def add_fichas_by_display_name(display_name: str, qty: int) -> tuple[str | None, dict[str, Any] | None]:
+    user_key, profile = find_user_by_display_name(display_name)
+    if not user_key or not profile:
+        return None, None
+
+    updated = add_fichas_by_user_key(user_key, qty)
+    return user_key, updated
 
 
 # =========================================================
@@ -302,7 +403,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/misfichas - ver fichas\n"
         "/compraspendientes - ver compras pendientes (admin)\n"
         "/aprobarcompra ID_COMPRA - acreditar compra pendiente (admin)\n"
-        "/sumarfichas USER_ID CANTIDAD - sumar fichas directo (admin)\n"
+        "/sumarfichas USER_ID CANTIDAD - sumar fichas por ID (admin)\n"
+        "/sumarfichasnombre NOMBRE | CANTIDAD - sumar fichas por nombre (admin)\n"
         "/stats - estadísticas (admin)"
     )
 
@@ -470,22 +572,48 @@ async def sumar_fichas_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("Cantidad inválida.")
         return
 
-    users = load_users(USERS_FILE)
-    profile = users.get(str(user_id))
-
-    if not profile:
+    updated = add_fichas_by_user_key(user_id, amount)
+    if not updated:
         await update.message.reply_text("Usuario no encontrado en users_data.json")
         return
 
-    profile["fichas"] = max(0, safe_int(profile.get("fichas", 0), 0, 0) + amount)
-    profile["updated_at"] = now_iso()
-    users[str(user_id)] = profile
-    save_users(users, USERS_FILE)
+    await update.message.reply_text(
+        f"✅ Fichas actualizadas\n"
+        f"Usuario: {updated.get('display_name', 'Jugador')}\n"
+        f"Saldo: {safe_int(updated.get('fichas', 0), 0, 0)}"
+    )
+
+
+async def sumar_fichas_nombre_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.message:
+        return
+
+    if not is_admin(update.effective_user.id, ADMIN_IDS):
+        await update.message.reply_text("No autorizado.")
+        return
+
+    raw = " ".join(context.args).strip()
+    if not raw or "|" not in raw:
+        await update.message.reply_text("Uso: /sumarfichasnombre NOMBRE | CANTIDAD")
+        return
+
+    name_part, qty_part = [x.strip() for x in raw.split("|", 1)]
+    qty = safe_int(qty_part, default=0, min_value=1)
+
+    if not name_part or qty <= 0:
+        await update.message.reply_text("Nombre o cantidad inválidos.")
+        return
+
+    user_key, updated = add_fichas_by_display_name(name_part, qty)
+    if not user_key or not updated:
+        await update.message.reply_text("No encontré un usuario con ese nombre.")
+        return
 
     await update.message.reply_text(
         f"✅ Fichas actualizadas\n"
-        f"Usuario: {profile.get('display_name', 'Jugador')}\n"
-        f"Saldo: {safe_int(profile.get('fichas', 0), 0, 0)}"
+        f"Usuario: {updated.get('display_name', 'Jugador')}\n"
+        f"User key: {user_key}\n"
+        f"Saldo: {safe_int(updated.get('fichas', 0), 0, 0)}"
     )
 
 
@@ -536,6 +664,7 @@ def build_bot_application():
     bot_app.add_handler(CommandHandler("compraspendientes", compras_pendientes_command))
     bot_app.add_handler(CommandHandler("aprobarcompra", aprobar_compra_command))
     bot_app.add_handler(CommandHandler("sumarfichas", sumar_fichas_command))
+    bot_app.add_handler(CommandHandler("sumarfichasnombre", sumar_fichas_nombre_command))
     bot_app.add_handler(CallbackQueryHandler(button_handler))
     return bot_app
 
@@ -711,6 +840,7 @@ def api_profile():
 
 
 @app.post("/api/profile-sync")
+@app.post("/api/user/sync")
 def api_profile_sync():
     data = request.get_json(silent=True) or {}
 
@@ -747,6 +877,7 @@ def api_profile_sync():
 
 
 @app.post("/api/create-pending-purchase")
+@app.post("/api/purchase")
 def api_create_pending_purchase():
     data = request.get_json(silent=True) or {}
 
@@ -895,6 +1026,52 @@ def api_spin():
                 "highlight_text": True,
                 "high_contrast_text": True,
             },
+        }
+    )
+
+
+@app.post("/api/admin/buyers")
+def api_admin_buyers():
+    data = request.get_json(silent=True) or {}
+
+    user_id = data.get("user_id")
+    admin_key = str(data.get("admin_key", "")).strip()
+
+    if not is_admin_panel_authorized(user_id, admin_key):
+        return json_error("No autorizado.", 403)
+
+    buyers = list_recent_buyers()
+    return jsonify({"ok": True, "buyers": buyers})
+
+
+@app.post("/api/admin/add-fichas-by-name")
+def api_admin_add_fichas_by_name():
+    data = request.get_json(silent=True) or {}
+
+    user_id = data.get("user_id")
+    admin_key = str(data.get("admin_key", "")).strip()
+
+    if not is_admin_panel_authorized(user_id, admin_key):
+        return json_error("No autorizado.", 403)
+
+    display_name = str(data.get("display_name", "")).strip()
+    qty = safe_int(data.get("qty", 0), default=0, min_value=1)
+
+    if not display_name:
+        return json_error("Falta display_name.")
+    if qty <= 0:
+        return json_error("Cantidad inválida.")
+
+    user_key, updated = add_fichas_by_display_name(display_name, qty)
+    if not user_key or not updated:
+        return json_error("No se encontró un usuario con ese nombre.", 404)
+
+    return jsonify(
+        {
+            "ok": True,
+            "user_key": user_key,
+            "profile": profile_payload(updated),
+            "message": f"Se agregaron {qty} ficha(s) a {updated.get('display_name', 'Jugador')}.",
         }
     )
 

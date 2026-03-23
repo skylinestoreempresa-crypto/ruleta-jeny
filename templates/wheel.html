@@ -11,47 +11,47 @@
 
   <style>
     :root{
-      --bg-0:#050106;
-      --bg-1:#0d0210;
-      --bg-2:#190513;
-      --bg-3:#2a091a;
-      --bg-4:#3d1026;
-      --bg-5:#5b1838;
+      --bg-0:#040106;
+      --bg-1:#0c0210;
+      --bg-2:#170511;
+      --bg-3:#260816;
+      --bg-4:#3b1025;
+      --bg-5:#591837;
 
-      --gold-1:#fff8e2;
-      --gold-2:#ffe8a4;
-      --gold-3:#ffd96f;
-      --gold-4:#ffbf3d;
-      --gold-5:#dd8d11;
-      --gold-6:#7a4300;
+      --gold-1:#fff9e7;
+      --gold-2:#ffe9a9;
+      --gold-3:#ffd76a;
+      --gold-4:#ffbd39;
+      --gold-5:#d9890e;
+      --gold-6:#6e3d00;
 
-      --rose-1:#ffc7de;
-      --rose-2:#ff7fb5;
-      --rose-3:#ff3f93;
-      --rose-4:#d91968;
+      --rose-1:#ffd1e5;
+      --rose-2:#ff8abb;
+      --rose-3:#ff428f;
+      --rose-4:#d71967;
 
-      --violet-1:#e3d4ff;
-      --violet-2:#ab81ff;
-      --violet-3:#6b3cff;
+      --violet-1:#e5d8ff;
+      --violet-2:#b18aff;
+      --violet-3:#7346ff;
 
-      --cyan-1:#d0fbff;
-      --cyan-2:#79efff;
-      --cyan-3:#17d0e8;
+      --cyan-1:#d6fcff;
+      --cyan-2:#81f0ff;
+      --cyan-3:#17d2e9;
 
-      --mint-1:#dcfff3;
-      --mint-2:#57ecb7;
+      --mint-1:#ddfff4;
+      --mint-2:#52eab5;
 
-      --text-1:#fff9fc;
-      --text-2:#edd8e3;
-      --text-3:#c5a2b2;
-      --text-4:#8f6f7d;
+      --text-1:#fffafe;
+      --text-2:#eedbe6;
+      --text-3:#caa8b8;
+      --text-4:#92727f;
 
       --line-1:rgba(255,255,255,.10);
       --line-2:rgba(255,255,255,.06);
 
       --shadow-soft:0 14px 34px rgba(0,0,0,.28);
       --shadow-md:0 20px 48px rgba(0,0,0,.36);
-      --shadow-strong:0 28px 80px rgba(0,0,0,.48);
+      --shadow-strong:0 28px 90px rgba(0,0,0,.50);
 
       --radius-xl:28px;
       --radius-lg:22px;
@@ -61,23 +61,25 @@
       --safe-top:env(safe-area-inset-top, 0px);
       --safe-bottom:env(safe-area-inset-bottom, 0px);
 
-      --wheel-size:min(70vw, 720px);
-      --txt-shadow:
-        0 2px 14px rgba(0,0,0,.72),
-        0 1px 0 rgba(0,0,0,.95);
+      --wheel-size:min(70vw, 760px);
+      --txt-shadow:0 2px 16px rgba(0,0,0,.78), 0 1px 0 rgba(0,0,0,.95);
     }
 
     *{box-sizing:border-box}
     *::before,*::after{box-sizing:border-box}
-
-    html,body{
-      margin:0;
-      min-height:100%;
-      overflow-x:hidden;
-      color:var(--text-1);
-      font-family:Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    html,body{margin:0;min-height:100%}
+    html{
       -webkit-text-size-adjust:100%;
       text-rendering:optimizeLegibility;
+      scroll-behavior:smooth;
+    }
+
+    body{
+      overflow-x:hidden;
+      color:var(--text-1);
+      font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
       background:
         radial-gradient(circle at 12% 10%, rgba(255,76,146,.18), transparent 22%),
         radial-gradient(circle at 88% 14%, rgba(84,227,255,.12), transparent 20%),
@@ -85,18 +87,12 @@
         linear-gradient(180deg, #050106 0%, #12030d 24%, #170511 45%, #0a0208 100%);
     }
 
-    body.modal-open{
-      overflow:hidden;
-      touch-action:none;
-    }
-
     body::before{
       content:"";
       position:fixed;
       inset:0;
       pointer-events:none;
-      background:
-        radial-gradient(circle at center, transparent 36%, rgba(0,0,0,.30) 100%);
+      background:radial-gradient(circle at center, transparent 36%, rgba(0,0,0,.32) 100%);
       z-index:0;
     }
 
@@ -106,20 +102,19 @@
       inset:-20%;
       pointer-events:none;
       opacity:.10;
-      background:
-        repeating-linear-gradient(
-          135deg,
-          rgba(255,255,255,.02) 0 2px,
-          transparent 2px 18px
-        );
+      background:repeating-linear-gradient(135deg, rgba(255,255,255,.02) 0 2px, transparent 2px 18px);
       z-index:0;
+    }
+
+    body.modal-open{
+      overflow:hidden;
+      touch-action:none;
     }
 
     a{color:inherit;text-decoration:none}
     button,input,select{font:inherit}
     canvas{display:block;max-width:100%}
-
-    .hidden{display:none !important;}
+    .hidden{display:none!important}
 
     .app{
       position:relative;
@@ -139,9 +134,8 @@
       padding:14px 18px;
       border-radius:28px;
       border:1px solid var(--line-1);
-      background:
-        linear-gradient(180deg, rgba(28,8,20,.88), rgba(10,3,8,.82));
-      backdrop-filter:blur(20px) saturate(140%);
+      background:linear-gradient(180deg, rgba(28,8,20,.88), rgba(10,3,8,.82));
+      backdrop-filter:blur(20px) saturate(145%);
       box-shadow:var(--shadow-soft);
     }
 
@@ -153,12 +147,12 @@
     }
 
     .brand-icon{
-      width:54px;
-      height:54px;
+      width:56px;
+      height:56px;
       border-radius:18px;
       display:grid;
       place-items:center;
-      font-size:26px;
+      font-size:28px;
       color:#2a0e18;
       background:
         radial-gradient(circle at 28% 24%, rgba(255,255,255,.85), transparent 22%),
@@ -171,7 +165,6 @@
     }
 
     .brand-copy{min-width:0}
-
     .eyebrow{
       font-size:12px;
       line-height:1;
@@ -223,7 +216,7 @@
 
     .layout{
       display:grid;
-      grid-template-columns:360px minmax(0,1fr) 350px;
+      grid-template-columns:360px minmax(0,1fr) 360px;
       gap:18px;
       align-items:start;
     }
@@ -291,6 +284,7 @@
       font-weight:1000;
       letter-spacing:-.04em;
       text-shadow:var(--txt-shadow);
+      word-break:break-word;
     }
 
     .hero-banner p{
@@ -333,8 +327,7 @@
       min-height:112px;
       border-radius:20px;
       border:1px solid var(--line-1);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025));
+      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025));
       box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
     }
 
@@ -372,8 +365,7 @@
       padding:14px;
       border-radius:18px;
       border:1px solid var(--line-1);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
     }
 
     .item-head{
@@ -389,6 +381,7 @@
       font-weight:1000;
       color:#fff;
       text-shadow:var(--txt-shadow);
+      word-break:break-word;
     }
 
     .item-badge{
@@ -408,6 +401,7 @@
       font-size:13px;
       line-height:1.55;
       color:var(--text-2);
+      word-break:break-word;
     }
 
     .footer-note{
@@ -470,13 +464,8 @@
       filter:drop-shadow(0 24px 48px rgba(0,0,0,.36));
     }
 
-    .wheel-rig.idle{
-      animation:wheelBreath 3.6s ease-in-out infinite;
-    }
-
-    .wheel-rig.flash{
-      animation:wheelFlash .95s ease 0s 2;
-    }
+    .wheel-rig.idle{animation:wheelBreath 3.6s ease-in-out infinite}
+    .wheel-rig.flash{animation:wheelFlash .95s ease 0s 2}
 
     @keyframes wheelBreath{
       0%,100%{transform:translateY(0) rotateX(0deg)}
@@ -492,8 +481,7 @@
       position:absolute;
       inset:-6%;
       border-radius:50%;
-      background:
-        radial-gradient(circle, rgba(255,214,104,.24), rgba(255,84,157,.12), rgba(117,71,255,.08), transparent 72%);
+      background:radial-gradient(circle, rgba(255,214,104,.24), rgba(255,84,157,.12), rgba(117,71,255,.08), transparent 72%);
       filter:blur(26px);
       opacity:.92;
       pointer-events:none;
@@ -553,9 +541,7 @@
       background:
         radial-gradient(circle at 30% 25%, rgba(255,255,255,.94), transparent 18%),
         linear-gradient(180deg, #fff0f7, #ff8eb9 44%, #ff2f85 100%);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.65),
-        0 8px 14px rgba(0,0,0,.24);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.65), 0 8px 14px rgba(0,0,0,.24);
     }
 
     .wheel-shadow-floor{
@@ -602,9 +588,7 @@
         radial-gradient(circle at 50% 22%, rgba(255,255,255,.12), transparent 25%),
         linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
       border:1px solid rgba(255,255,255,.12);
-      box-shadow:
-        inset 0 2px 12px rgba(255,255,255,.04),
-        inset 0 -18px 28px rgba(0,0,0,.18);
+      box-shadow:inset 0 2px 12px rgba(255,255,255,.04), inset 0 -18px 28px rgba(0,0,0,.18);
     }
 
     .wheel-plate::before{
@@ -643,10 +627,7 @@
         radial-gradient(circle at 28% 24%, rgba(255,255,255,.72), transparent 18%),
         linear-gradient(180deg, #fff6db, #ffd86e 42%, #ffb534 100%);
       border:2px solid rgba(255,255,255,.48);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.70),
-        0 10px 24px rgba(0,0,0,.26),
-        0 0 28px rgba(255,216,101,.18);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.70), 0 10px 24px rgba(0,0,0,.26), 0 0 28px rgba(255,216,101,.18);
     }
 
     .wheel-center::before{
@@ -690,8 +671,7 @@
       padding:14px 16px;
       border-radius:18px;
       border:1px solid var(--line-1);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.025));
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.025));
     }
 
     .status-main{
@@ -713,6 +693,7 @@
       font-size:14px;
       line-height:1.5;
       color:var(--text-2);
+      word-break:break-word;
     }
 
     .status-chip{
@@ -751,15 +732,8 @@
       box-shadow:var(--shadow-soft);
     }
 
-    .btn:hover{
-      transform:translateY(-1px);
-      filter:brightness(1.03);
-    }
-
-    .btn:active{
-      transform:translateY(1px) scale(.995);
-    }
-
+    .btn:hover{transform:translateY(-1px);filter:brightness(1.03)}
+    .btn:active{transform:translateY(1px) scale(.995)}
     .btn:disabled{
       opacity:.56;
       cursor:not-allowed;
@@ -769,30 +743,20 @@
 
     .btn-primary{
       color:#2b1017;
-      background:
-        linear-gradient(180deg, #fff7da, #ffd86d 42%, #ffbc38 100%);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.58),
-        0 12px 24px rgba(255,179,39,.16),
-        0 8px 20px rgba(0,0,0,.26);
+      background:linear-gradient(180deg, #fff7da, #ffd86d 42%, #ffbc38 100%);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.58), 0 12px 24px rgba(255,179,39,.16), 0 8px 20px rgba(0,0,0,.26);
     }
 
     .btn-accent{
       color:#fff;
-      background:
-        linear-gradient(135deg, #ff5aa2, #ff2c8a 48%, #844bff);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.32),
-        0 14px 28px rgba(160,34,111,.24);
+      background:linear-gradient(135deg, #ff5aa2, #ff2c8a 48%, #844bff);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.32), 0 14px 28px rgba(160,34,111,.24);
     }
 
     .btn-cyan{
       color:#042028;
-      background:
-        linear-gradient(180deg, #d5fbff, #75efff 55%, #16d8ef);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.44),
-        0 12px 24px rgba(19,212,232,.18);
+      background:linear-gradient(180deg, #d5fbff, #75efff 55%, #16d8ef);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.44), 0 12px 24px rgba(19,212,232,.18);
     }
 
     .btn-outline{
@@ -815,24 +779,19 @@
     .chip{
       min-height:54px;
       padding:12px 14px;
-      border:none;
       border-radius:16px;
       cursor:pointer;
       color:#fff;
       font-weight:1000;
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
+      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
       border:1px solid var(--line-1);
       transition:.18s ease;
     }
 
     .chip.active{
       color:#291016;
-      background:
-        linear-gradient(180deg, #fff7da, #ffd96e 45%, #ffbc38);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.68),
-        0 12px 22px rgba(255,186,48,.14);
+      background:linear-gradient(180deg, #fff7da, #ffd96e 45%, #ffbc38);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.68), 0 12px 22px rgba(255,186,48,.14);
     }
 
     .stepper{
@@ -873,8 +832,7 @@
       padding:14px;
       border-radius:18px;
       border:1px solid var(--line-1);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
     }
 
     .totals-row{
@@ -894,15 +852,36 @@
       text-shadow:var(--txt-shadow);
     }
 
-    .button-stack{
-      display:grid;
-      gap:10px;
-    }
+    .button-stack{display:grid;gap:10px}
 
     .hint{
       font-size:13px;
       line-height:1.55;
       color:var(--text-2);
+    }
+
+    .admin-toolbar{display:grid;gap:10px;margin-bottom:12px}
+    .admin-grid{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}
+    .admin-user-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+    .mini-btn{
+      min-height:38px;
+      padding:8px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:1000;
+      color:#fff;
+      background:rgba(255,255,255,.08);
+      border:1px solid var(--line-1);
+    }
+
+    .mini-btn.primary{
+      color:#2b1017;
+      background:linear-gradient(180deg, #fff7da, #ffd86d 42%, #ffbc38 100%);
+    }
+
+    .mini-btn.accent{
+      background:linear-gradient(135deg, #ff5aa2, #ff2c8a 48%, #844bff);
     }
 
     .modal-backdrop{
@@ -967,10 +946,7 @@
       gap:14px;
     }
 
-    .field{
-      display:grid;
-      gap:8px;
-    }
+    .field{display:grid;gap:8px}
 
     .field label{
       font-size:12px;
@@ -984,24 +960,19 @@
       width:100%;
       min-height:58px;
       padding:14px 16px;
-      border:none;
-      outline:none;
       border-radius:18px;
       color:#fff;
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
       border:1px solid var(--line-1);
       box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
       transition:.18s ease;
+      outline:none;
     }
 
     .input::placeholder{color:#c8a7b7}
-
     .input:focus{
       border-color:rgba(255,207,102,.55);
-      box-shadow:
-        0 0 0 4px rgba(255,201,90,.10),
-        inset 0 1px 0 rgba(255,255,255,.06);
+      box-shadow:0 0 0 4px rgba(255,201,90,.10), inset 0 1px 0 rgba(255,255,255,.06);
     }
 
     .modal-actions{
@@ -1027,6 +998,7 @@
       line-height:1.02;
       font-weight:1000;
       text-shadow:var(--txt-shadow);
+      word-break:break-word;
     }
 
     .result-box span{
@@ -1035,6 +1007,7 @@
       color:var(--text-2);
       font-size:15px;
       line-height:1.5;
+      word-break:break-word;
     }
 
     .toast-wrap{
@@ -1055,8 +1028,7 @@
       padding:14px 16px;
       border-radius:18px;
       border:1px solid var(--line-1);
-      background:
-        linear-gradient(180deg, rgba(22,7,17,.96), rgba(12,4,10,.92));
+      background:linear-gradient(180deg, rgba(22,7,17,.96), rgba(12,4,10,.92));
       box-shadow:var(--shadow-soft);
       opacity:0;
       transform:translateY(-8px) scale(.98);
@@ -1092,70 +1064,37 @@
     }
 
     @media (max-width:1280px){
-      .layout{
-        grid-template-columns:330px minmax(0,1fr);
-      }
-      .right-col{
-        grid-column:1 / -1;
-      }
-      .hero,.wheel-card{
-        min-height:auto;
-      }
+      .layout{grid-template-columns:330px minmax(0,1fr)}
+      .right-col{grid-column:1 / -1}
+      .hero,.wheel-card{min-height:auto}
     }
 
     @media (max-width:980px){
-      .layout{
-        grid-template-columns:1fr;
-      }
-      .hero,.wheel-card{
-        min-height:auto;
-      }
-      .actions{
-        grid-template-columns:1fr;
-      }
-      .topbar{
-        flex-direction:column;
-        align-items:flex-start;
-      }
-      .top-stats{
-        width:100%;
-        justify-content:flex-start;
-      }
+      .layout{grid-template-columns:1fr}
+      .hero,.wheel-card{min-height:auto}
+      .actions{grid-template-columns:1fr}
+      .topbar{flex-direction:column;align-items:flex-start}
+      .top-stats{width:100%;justify-content:flex-start}
     }
 
     @media (max-width:640px){
-      :root{
-        --wheel-size:min(94vw, 520px);
-      }
-      .app{
-        padding:calc(var(--safe-top) + 10px) 10px calc(var(--safe-bottom) + 18px);
-      }
+      :root{--wheel-size:min(94vw, 520px)}
+      .app{padding:calc(var(--safe-top) + 10px) 10px calc(var(--safe-bottom) + 18px)}
       .panel{padding:14px}
       .hero-banner h1{font-size:clamp(26px, 9vw, 40px)}
       .stats-grid{grid-template-columns:1fr}
       .country-switch{grid-template-columns:1fr}
-      .pointer-disc{
-        width:100px;
-        height:100px;
-      }
+      .pointer-disc{width:100px;height:100px}
       .pointer-disc::after{
         border-left-width:16px;
         border-right-width:16px;
         border-top-width:34px;
         bottom:-22px;
       }
-      .wheel-center{
-        width:31%;
-        height:31%;
-      }
-      .modal-actions{
-        grid-template-columns:1fr;
-      }
-      .toast-wrap{
-        left:10px;
-        right:10px;
-        width:auto;
-      }
+      .wheel-center{width:31%;height:31%}
+      .modal-actions{grid-template-columns:1fr}
+      .toast-wrap{left:10px;right:10px;width:auto}
+      .admin-grid{grid-template-columns:1fr}
     }
 
     @media (prefers-reduced-motion:reduce){
@@ -1195,11 +1134,9 @@
             value="{{ display_name|default('', true)|e }}"
           >
         </div>
-
         <div class="hint" id="nameHintText">
           Este nombre se usa para saludarte, identificar tu compra y dejar más claro el premio ganado.
         </div>
-
         <div class="modal-actions">
           <button class="btn btn-outline" id="skipNameBtn" type="button">Validar nombre</button>
           <button class="btn btn-accent" id="saveNameBtn" type="button">Guardar nombre</button>
@@ -1251,7 +1188,8 @@
           <div class="hero-banner">
             <h1 id="heroGreeting">Hola, Jugador</h1>
             <p>
-              Girá una ruleta premium con mejor diseño, más presencia visual, mejor claridad y una experiencia mucho más seria y atractiva.
+              Girá una ruleta premium con mejor diseño, mejor claridad, más profundidad visual,
+              sonido procedural, animaciones fluidas y una experiencia mucho más seria y atractiva.
             </p>
           </div>
         </div>
@@ -1294,7 +1232,6 @@
             <h2>Cómo comprar</h2>
             <small>Rápido</small>
           </div>
-
           <div class="list">
             <div class="item">
               <div class="item-head">
@@ -1322,7 +1259,7 @@
                 <div class="item-badge">Paso 3</div>
               </div>
               <div class="item-meta">
-                La compra queda pendiente para ser aprobada desde Telegram por el administrador.
+                La compra queda pendiente para ser aprobada desde Telegram o desde admin.
               </div>
             </div>
           </div>
@@ -1333,7 +1270,6 @@
             <h2>Últimos resultados</h2>
             <small>Sesión actual</small>
           </div>
-
           <div class="list" id="historyList">
             <div class="item">
               <div class="item-head">
@@ -1348,7 +1284,7 @@
         </div>
 
         <div class="footer-note">
-          Ultra premium UI · responsive · ruleta 3D · redirección directa al pago · nombre obligatorio · acceso admin por palabra admin
+          Ultra premium UI · responsive · ruleta 3D · sonido procedural · nombre obligatorio · panel admin
         </div>
       </aside>
 
@@ -1372,7 +1308,13 @@
             <div class="wheel-frame"></div>
 
             <div class="wheel-plate">
-              <canvas id="wheelCanvas" class="wheel-canvas" width="1200" height="1200" aria-label="Ruleta de premios"></canvas>
+              <canvas
+                id="wheelCanvas"
+                class="wheel-canvas"
+                width="1400"
+                height="1400"
+                aria-label="Ruleta de premios"
+              ></canvas>
             </div>
 
             <div class="wheel-center">
@@ -1458,21 +1400,35 @@
             <small>Modo oculto</small>
           </div>
 
-          <div class="list" id="adminBuyersList">
-            <div class="item">
-              <div class="item-head">
-                <div class="item-title">Sin compras cargadas</div>
-                <div class="item-badge">Admin</div>
-              </div>
-              <div class="item-meta">
-                Acá van a aparecer los nombres de quienes registraron compra.
-              </div>
+          <div class="admin-toolbar">
+            <div class="field">
+              <label for="adminSearchInput">Buscar usuario</label>
+              <input
+                id="adminSearchInput"
+                class="input"
+                type="text"
+                maxlength="80"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Buscar por nombre, username o user_id"
+              >
+            </div>
+
+            <div class="button-stack">
+              <button class="btn btn-outline" id="adminRefreshBtn" type="button">↻ Actualizar lista</button>
             </div>
           </div>
 
-          <div class="button-stack" style="margin-top:12px;">
-            <button class="btn btn-accent" id="adminAddFichaBtn" type="button">＋ Agregar ficha</button>
-            <button class="btn btn-outline" id="adminRefreshBtn" type="button">↻ Actualizar lista</button>
+          <div class="list" id="adminBuyersList">
+            <div class="item">
+              <div class="item-head">
+                <div class="item-title">Sin usuarios cargados</div>
+                <div class="item-badge">Admin</div>
+              </div>
+              <div class="item-meta">
+                Acá van a aparecer los nombres guardados para cargar fichas.
+              </div>
+            </div>
           </div>
         </div>
       </aside>
@@ -1485,10 +1441,17 @@
 
       const rawPrizes = {{ prizes|safe }};
       const rawUiConfig = {{ ui_config|safe if ui_config is defined else "{}" }};
-      const STORAGE_PREFIX = "ruleta_premium_v2";
+
+      const STORAGE_PREFIX = "ruleta_premium_v4";
       const HISTORY_STORAGE_KEY = `${STORAGE_PREFIX}_history`;
       const SETTINGS_STORAGE_KEY = `${STORAGE_PREFIX}_settings`;
-      const INVALID_DEFAULT_NAMES = new Set(["", "jugador", "player", "guest", "usuario", "user", "cliente", "client"]);
+
+      const INVALID_DEFAULT_NAMES = new Set([
+        "", "jugador", "player", "guest", "usuario", "user", "cliente", "client"
+      ]);
+
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const telegramWebApp = window.Telegram?.WebApp || null;
 
       const STATE = {
         botName: String(rawUiConfig.botName || {{ bot_name|tojson|safe }} || "Ruleta Premium"),
@@ -1514,32 +1477,39 @@
         history: [],
         rotationDeg: 0,
         isAdminMode: false,
-        buyers: [],
-        hasLoadedAdminOnce: false,
-        pendingOpenPayment: false
+        adminUsers: [],
+        adminFilter: "",
+        hasLoadedAdminOnce: false
       };
 
       const els = {
         wheelCanvas: document.getElementById("wheelCanvas"),
         wheelRig: document.getElementById("wheelRig"),
         pointerDisc: document.getElementById("pointerDisc"),
+
         topTokens: document.getElementById("topTokens"),
         topDemo: document.getElementById("topDemo"),
         topCurrency: document.getElementById("topCurrency"),
+
         statTokens: document.getElementById("statTokens"),
         statDemo: document.getElementById("statDemo"),
         statCurrency: document.getElementById("statCurrency"),
         statTicket: document.getElementById("statTicket"),
+
         heroGreeting: document.getElementById("heroGreeting"),
+
         spinDemoBtn: document.getElementById("spinDemoBtn"),
         spinPaidBtn: document.getElementById("spinPaidBtn"),
         goBuyBtn: document.getElementById("goBuyBtn"),
+
         wheelStateLabel: document.getElementById("wheelStateLabel"),
         statusTitle: document.getElementById("statusTitle"),
         statusSubtitle: document.getElementById("statusSubtitle"),
         statusChip: document.getElementById("statusChip"),
+
         prizeList: document.getElementById("prizeList"),
         historyList: document.getElementById("historyList"),
+
         countrySwitch: document.getElementById("countrySwitch"),
         qtyMinusBtn: document.getElementById("qtyMinusBtn"),
         qtyPlusBtn: document.getElementById("qtyPlusBtn"),
@@ -1548,7 +1518,9 @@
         buyCountryLabel: document.getElementById("buyCountryLabel"),
         buyTotalLabel: document.getElementById("buyTotalLabel"),
         buyNowBtn: document.getElementById("buyNowBtn"),
+
         toastWrap: document.getElementById("toastWrap"),
+
         resultModal: document.getElementById("resultModal"),
         resultPrizeName: document.getElementById("resultPrizeName"),
         resultPrizeValue: document.getElementById("resultPrizeValue"),
@@ -1556,27 +1528,29 @@
         resultThanksText: document.getElementById("resultThanksText"),
         resultCloseBtn: document.getElementById("resultCloseBtn"),
         resultSpinAgainBtn: document.getElementById("resultSpinAgainBtn"),
+
         confettiCanvas: document.getElementById("confettiCanvas"),
+
         nameModal: document.getElementById("nameModal"),
         playerNameInput: document.getElementById("playerNameInput"),
         saveNameBtn: document.getElementById("saveNameBtn"),
         skipNameBtn: document.getElementById("skipNameBtn"),
         nameHintText: document.getElementById("nameHintText"),
+
         adminPanel: document.getElementById("adminPanel"),
         adminBuyersList: document.getElementById("adminBuyersList"),
-        adminAddFichaBtn: document.getElementById("adminAddFichaBtn"),
-        adminRefreshBtn: document.getElementById("adminRefreshBtn")
+        adminRefreshBtn: document.getElementById("adminRefreshBtn"),
+        adminSearchInput: document.getElementById("adminSearchInput")
       };
 
-      const wheelCtx = els.wheelCanvas.getContext("2d");
-      const confettiCtx = els.confettiCanvas.getContext("2d");
-      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const telegramWebApp = window.Telegram?.WebApp || null;
+      const wheelCtx = els.wheelCanvas.getContext("2d", { alpha: true });
+      const confettiCtx = els.confettiCanvas.getContext("2d", { alpha: true });
 
       let confettiPieces = [];
       let confettiFrame = null;
       let audioCtx = null;
       let resizeRaf = 0;
+      let adminSearchTimer = 0;
 
       function clamp(value, min, max) {
         return Math.min(max, Math.max(min, value));
@@ -1596,6 +1570,14 @@
         return !!text && !INVALID_DEFAULT_NAMES.has(text);
       }
 
+      function isAdminKeyword(value) {
+        return sanitizeDisplayName(value).toLowerCase() === "admin";
+      }
+
+      function safeNameForUI() {
+        return hasRealName(STATE.displayName) ? STATE.displayName : "Jugador";
+      }
+
       function escapeHtml(value) {
         return String(value ?? "")
           .replaceAll("&", "&amp;")
@@ -1603,14 +1585,6 @@
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#039;");
-      }
-
-      function isAdminKeyword(value) {
-        return sanitizeDisplayName(value).toLowerCase() === "admin";
-      }
-
-      function safeNameForUI() {
-        return hasRealName(STATE.displayName) ? STATE.displayName : "Jugador";
       }
 
       function persistSettings() {
@@ -1677,8 +1651,20 @@
       }
 
       function setBodyModalState() {
-        const anyModalOpen = els.nameModal.classList.contains("show") || els.resultModal.classList.contains("show");
+        const anyModalOpen =
+          els.nameModal.classList.contains("show") ||
+          els.resultModal.classList.contains("show");
         document.body.classList.toggle("modal-open", anyModalOpen);
+      }
+
+      function openModal(modal) {
+        modal.classList.add("show");
+        setBodyModalState();
+      }
+
+      function closeModal(modal) {
+        modal.classList.remove("show");
+        setBodyModalState();
       }
 
       function showToast(title, text = "", type = "info", duration = 2800) {
@@ -1697,7 +1683,7 @@
         }, duration);
       }
 
-      async function api(url, payload, timeoutMs = 12000) {
+      async function api(url, payload, timeoutMs = 14000) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -1706,6 +1692,38 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+
+          let data = null;
+          try {
+            data = await res.json();
+          } catch {
+            throw new Error("Respuesta inválida del servidor.");
+          }
+
+          if (!res.ok || !data?.ok) {
+            throw new Error(data?.error || data?.message || "No se pudo completar la acción.");
+          }
+
+          return data;
+        } catch (error) {
+          if (error?.name === "AbortError") {
+            throw new Error("La solicitud tardó demasiado. Probá de nuevo.");
+          }
+          throw error;
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      async function apiGet(url, timeoutMs = 14000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+          const res = await fetch(url, {
+            method: "GET",
             signal: controller.signal
           });
 
@@ -1744,11 +1762,12 @@
 
       function setButtonBusy(button, busy, busyText = "") {
         if (!button) return;
+
         if (busy) {
           if (!button.dataset.originalText) {
             button.dataset.originalText = button.textContent;
           }
-          button.textContent = busyText || button.textContent;
+          if (busyText) button.textContent = busyText;
           button.disabled = true;
         } else {
           if (button.dataset.originalText) {
@@ -1761,10 +1780,12 @@
         els.topTokens.textContent = String(STATE.fichas);
         els.topDemo.textContent = String(STATE.demoSpinsLeft);
         els.topCurrency.textContent = STATE.currency;
+
         els.statTokens.textContent = String(STATE.fichas);
         els.statDemo.textContent = String(STATE.demoSpinsLeft);
         els.statCurrency.textContent = STATE.currency;
         els.statTicket.textContent = ticketLabel();
+
         els.buyTicketPrice.textContent = ticketLabel(STATE.selectedCountry === "AR" ? "ARS" : "UYU");
         els.buyCountryLabel.textContent = countryLabel(STATE.selectedCountry);
         els.buyTotalLabel.textContent = totalPriceLabel();
@@ -1778,26 +1799,26 @@
         els.statusTitle.textContent = `Bienvenido/a, ${safeName}`;
 
         if (STATE.isAdminMode) {
-          els.statusSubtitle.textContent = "Modo administrador activo. Podés revisar compradores y cargar fichas.";
+          els.statusSubtitle.textContent = "Modo administrador activo. Acá ves los nombres guardados y podés cargar fichas.";
           els.statusChip.textContent = "🛠 Admin activo";
           return;
         }
 
-        els.statusSubtitle.textContent = STATE.demoSpinsLeft > 0
-          ? `Tenés ${STATE.demoSpinsLeft} demo gratis disponible${STATE.demoSpinsLeft > 1 ? "s" : ""}.`
-          : `Tu demo gratis ya fue usada. Comprá fichas o girá con saldo.`;
-
         if (STATE.demoSpinsLeft > 0) {
+          els.statusSubtitle.textContent = `Tenés ${STATE.demoSpinsLeft} demo gratis disponible${STATE.demoSpinsLeft > 1 ? "s" : ""}.`;
           els.statusChip.textContent = "🎁 Demo disponible";
         } else if (STATE.fichas > 0) {
+          els.statusSubtitle.textContent = "Tu demo gratis ya fue usada. Tenés fichas disponibles para seguir jugando.";
           els.statusChip.textContent = "🎟 Tenés fichas";
         } else {
+          els.statusSubtitle.textContent = "Tu demo gratis ya fue usada. Comprá fichas para seguir girando.";
           els.statusChip.textContent = "💳 Comprá fichas";
         }
       }
 
       function updateButtons() {
         const missingName = !hasRealName(STATE.displayName) && !STATE.isAdminMode;
+
         els.spinDemoBtn.disabled = STATE.spinning || STATE.buying || STATE.demoSpinsLeft <= 0 || missingName;
         els.spinPaidBtn.disabled = STATE.spinning || STATE.buying || STATE.fichas <= 0 || missingName;
         els.buyNowBtn.disabled = STATE.spinning || STATE.buying || missingName;
@@ -1809,95 +1830,9 @@
 
       function setAdminMode(enabled) {
         STATE.isAdminMode = !!enabled;
-        if (els.adminPanel) {
-          els.adminPanel.classList.toggle("hidden", !STATE.isAdminMode);
-        }
+        els.adminPanel.classList.toggle("hidden", !STATE.isAdminMode);
         updateGreeting();
         updateButtons();
-      }
-
-      function renderAdminBuyers() {
-        if (!els.adminBuyersList) return;
-
-        if (!STATE.buyers.length) {
-          els.adminBuyersList.innerHTML = `
-            <div class="item">
-              <div class="item-head">
-                <div class="item-title">Sin compras cargadas</div>
-                <div class="item-badge">Admin</div>
-              </div>
-              <div class="item-meta">
-                Todavía no hay compradores para mostrar.
-              </div>
-            </div>
-          `;
-          return;
-        }
-
-        els.adminBuyersList.innerHTML = STATE.buyers.map((buyer) => `
-          <div class="item">
-            <div class="item-head">
-              <div class="item-title">${escapeHtml(buyer.display_name || buyer.name || "Sin nombre")}</div>
-              <div class="item-badge">${escapeHtml(String(buyer.qty || 1))} ficha(s)</div>
-            </div>
-            <div class="item-meta">
-              ${escapeHtml(countryLabel(String(buyer.country || "UY").toUpperCase()))} · ${escapeHtml(buyer.status || "pendiente")}
-            </div>
-          </div>
-        `).join("");
-      }
-
-      async function loadAdminBuyers(force = false) {
-        if (!STATE.isAdminMode) return;
-        if (!STATE.userId) {
-          renderAdminBuyers();
-          return;
-        }
-
-        if (STATE.hasLoadedAdminOnce && !force) return;
-
-        try {
-          const data = await api("/api/admin/buyers", {
-            user_id: STATE.userId,
-            admin_key: "Admin"
-          });
-
-          STATE.buyers = Array.isArray(data.buyers) ? data.buyers : [];
-          STATE.hasLoadedAdminOnce = true;
-          renderAdminBuyers();
-        } catch (error) {
-          STATE.buyers = [];
-          renderAdminBuyers();
-          showToast("Admin", error.message || "No se pudo cargar la lista de compradores.", "error");
-        }
-      }
-
-      async function adminAddFicha() {
-        if (!STATE.isAdminMode) return;
-
-        const targetName = prompt("Nombre del cliente:");
-        if (!targetName) return;
-
-        const qty = Number(prompt("Cantidad de fichas a agregar:", "1"));
-        if (!Number.isFinite(qty) || qty <= 0) {
-          showToast("Admin", "Cantidad inválida.", "error");
-          return;
-        }
-
-        try {
-          const data = await api("/api/admin/add-fichas-by-name", {
-            user_id: STATE.userId,
-            admin_key: "Admin",
-            display_name: targetName.trim(),
-            qty: Math.floor(qty)
-          });
-
-          showToast("Admin", data.message || "Fichas agregadas correctamente.", "success");
-          STATE.hasLoadedAdminOnce = false;
-          await loadAdminBuyers(true);
-        } catch (error) {
-          showToast("Admin", error.message || "No se pudieron agregar fichas.", "error");
-        }
       }
 
       function renderPrizeList() {
@@ -1962,24 +1897,6 @@
         return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       }
 
-      function resizeCanvases() {
-        cancelAnimationFrame(resizeRaf);
-        resizeRaf = requestAnimationFrame(() => {
-          const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-          const wheelRect = els.wheelCanvas.getBoundingClientRect();
-          const wheelSize = Math.max(320, Math.round(Math.max(wheelRect.width, wheelRect.height || wheelRect.width)));
-          els.wheelCanvas.width = Math.round(wheelSize * dpr);
-          els.wheelCanvas.height = Math.round(wheelSize * dpr);
-          wheelCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-          els.confettiCanvas.width = Math.round(window.innerWidth * dpr);
-          els.confettiCanvas.height = Math.round(window.innerHeight * dpr);
-          confettiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-          drawWheel(STATE.rotationDeg);
-        });
-      }
-
       function segmentPalette(index) {
         const palettes = [
           ["#ffd25b", "#f6b11d"],
@@ -1996,6 +1913,7 @@
 
       function wrapText(context, text, maxWidth, fontSize, maxLines = 2) {
         context.font = `1000 ${fontSize}px Inter, Arial, sans-serif`;
+
         const words = String(text).split(/\s+/).filter(Boolean);
         if (!words.length) return [""];
 
@@ -2011,14 +1929,19 @@
             current = words[i];
           }
         }
+
         lines.push(current);
 
         if (lines.length <= maxLines) return lines;
 
         const trimmed = lines.slice(0, maxLines);
-        while (context.measureText(trimmed[maxLines - 1] + "…").width > maxWidth && trimmed[maxLines - 1].length > 1) {
+        while (
+          context.measureText(trimmed[maxLines - 1] + "…").width > maxWidth &&
+          trimmed[maxLines - 1].length > 1
+        ) {
           trimmed[maxLines - 1] = trimmed[maxLines - 1].slice(0, -1);
         }
+
         trimmed[maxLines - 1] += "…";
         return trimmed;
       }
@@ -2063,6 +1986,7 @@
           wheelCtx.stroke();
 
           wheelCtx.save();
+
           const angle = start + slice / 2;
           wheelCtx.rotate(angle);
           wheelCtx.translate(radius * 0.66, 0);
@@ -2077,7 +2001,7 @@
           wheelCtx.textAlign = "center";
           wheelCtx.textBaseline = "middle";
           wheelCtx.fillStyle = "#fffef8";
-          wheelCtx.strokeStyle = "rgba(12,4,9,.78)";
+          wheelCtx.strokeStyle = "rgba(12,4,9,.82)";
           wheelCtx.lineWidth = Math.max(5, size * 0.006);
 
           const lines = wrapText(wheelCtx, label, maxWidth, fontSize, 2);
@@ -2108,6 +2032,7 @@
         centerGrad.addColorStop(1, "#ad6207");
         wheelCtx.fillStyle = centerGrad;
         wheelCtx.fill();
+
         wheelCtx.lineWidth = Math.max(3, size * 0.004);
         wheelCtx.strokeStyle = "rgba(255,255,255,.40)";
         wheelCtx.stroke();
@@ -2120,8 +2045,23 @@
         drawWheel(deg);
       }
 
-      function prizeIndexByName(name) {
-        return STATE.prizes.findIndex((p) => p.name === name);
+      function resizeCanvases() {
+        cancelAnimationFrame(resizeRaf);
+        resizeRaf = requestAnimationFrame(() => {
+          const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+          const wheelRect = els.wheelCanvas.getBoundingClientRect();
+          const wheelSize = Math.max(320, Math.round(Math.max(wheelRect.width, wheelRect.height || wheelRect.width)));
+          els.wheelCanvas.width = Math.round(wheelSize * dpr);
+          els.wheelCanvas.height = Math.round(wheelSize * dpr);
+          wheelCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+          els.confettiCanvas.width = Math.round(window.innerWidth * dpr);
+          els.confettiCanvas.height = Math.round(window.innerHeight * dpr);
+          confettiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+          drawWheel(STATE.rotationDeg);
+        });
       }
 
       function ensureAudio() {
@@ -2146,6 +2086,7 @@
 
         osc.type = type;
         osc.frequency.setValueAtTime(frequency, now);
+
         if (frequencyEnd !== null) {
           osc.frequency.exponentialRampToValueAtTime(Math.max(30, frequencyEnd), now + duration);
         }
@@ -2156,12 +2097,13 @@
 
         osc.connect(gain);
         gain.connect(ctx.destination);
+
         osc.start(now);
         osc.stop(now + duration + 0.02);
       }
 
       function playSpinStart() {
-        playTone({ frequency: 260, frequencyEnd: 90, duration: 0.6, type: "sawtooth", gainValue: 0.012 });
+        playTone({ frequency: 260, frequencyEnd: 90, duration: 0.6, type: "sawtooth", gainValue: 0.014 });
       }
 
       function playTick(intensity = 1) {
@@ -2170,7 +2112,7 @@
           frequencyEnd: 950 - intensity * 90,
           duration: 0.04,
           type: "triangle",
-          gainValue: 0.012 + intensity * 0.004
+          gainValue: 0.013 + intensity * 0.004
         });
       }
 
@@ -2183,16 +2125,21 @@
               frequencyEnd: freq * 1.02,
               duration: 0.16,
               type: "triangle",
-              gainValue: 0.024
+              gainValue: 0.026
             });
           }, index * 90);
         });
+      }
+
+      function prizeIndexByName(name) {
+        return STATE.prizes.findIndex((p) => p.name === name);
       }
 
       async function animateSpinToPrize(prizeName) {
         const index = prizeIndexByName(prizeName);
         const total = Math.max(1, STATE.prizes.length);
         const slice = 360 / total;
+
         const current = ((STATE.rotationDeg % 360) + 360) % 360;
         const targetCenter = index >= 0 ? (index * slice + slice / 2) : slice / 2;
         const adjustment = (360 - targetCenter) % 360;
@@ -2216,6 +2163,7 @@
             const t = clamp((now - start) / duration, 0, 1);
             const eased = 1 - Math.pow(1 - t, 4);
             const currentDeg = initial + (finalDeg - initial) * eased;
+
             setWheelRotation(currentDeg);
 
             const tilt = 8 + Math.sin(t * Math.PI * 6) * (1 - t) * 2.6;
@@ -2224,7 +2172,8 @@
             if (!prefersReducedMotion && now - lastTickAt > (34 + t * 120) && t < 0.985) {
               lastTickAt = now;
               playTick(1 - t * 0.5);
-              if (els.pointerDisc) {
+
+              if (els.pointerDisc?.animate) {
                 els.pointerDisc.animate(
                   [
                     { transform: "translateY(0) scaleY(1)" },
@@ -2244,6 +2193,7 @@
               STATE.spinning = false;
               updateButtons();
               els.wheelStateLabel.textContent = "Lista para girar";
+              els.wheelRig.classList.add("idle");
               updateGreeting();
               resolve();
             }
@@ -2267,6 +2217,7 @@
 
       function updateStateFromProfile(profile) {
         if (!profile) return;
+
         STATE.fichas = Number(profile.fichas ?? STATE.fichas);
         STATE.demoSpinsLeft = Number(profile.demo_spins_left ?? STATE.demoSpinsLeft);
 
@@ -2282,17 +2233,22 @@
 
       async function saveProfileNameIfPossible(value) {
         if (!STATE.userId) return;
+
         try {
-          await api("/api/profile", currentPayload({ display_name: value }));
-        } catch {}
+          await api("/api/user/save-name", currentPayload({ display_name: value }));
+        } catch {
+          try {
+            await api("/api/profile", currentPayload({ display_name: value }));
+          } catch {}
+        }
       }
 
       async function activateAdminMode() {
         STATE.displayName = "Admin";
         setAdminMode(true);
         await saveProfileNameIfPossible("Admin");
-        renderAdminBuyers();
-        await loadAdminBuyers(true);
+        renderAdminUsers();
+        await loadAdminUsers(true);
         updateGreeting();
       }
 
@@ -2305,6 +2261,7 @@
           updateButtons();
           setButtonBusy(els.saveNameBtn, true, "Entrando...");
           setButtonBusy(els.skipNameBtn, true, "Entrando...");
+
           try {
             await activateAdminMode();
             if (forceClose) closeModal(els.nameModal);
@@ -2334,9 +2291,7 @@
           STATE.displayName = value;
           await saveProfileNameIfPossible(value);
           updateGreeting();
-
           if (forceClose) closeModal(els.nameModal);
-
           showToast("Nombre guardado", `Bienvenido/a ${value}`, "success");
           return true;
         } finally {
@@ -2363,9 +2318,7 @@
       async function handleSpin(mode) {
         if (STATE.spinning || STATE.buying) return;
 
-        if (!requireValidName("Ingresá tu nombre antes de jugar.")) {
-          return;
-        }
+        if (!requireValidName("Ingresá tu nombre antes de jugar.")) return;
 
         if (!STATE.userId) {
           showToast("Falta user_id", "Abrí la ruleta desde Telegram para identificar al jugador.", "error");
@@ -2374,6 +2327,7 @@
 
         try {
           const data = await api("/api/spin", currentPayload({ mode }));
+
           const prizeName = data?.prize?.name || "Premio";
           const prizeValue = data?.prize?.label || "";
           const thanks = data?.messages?.thanks || `Gracias por jugar en ${STATE.botName}`;
@@ -2382,10 +2336,12 @@
 
           await animateSpinToPrize(prizeName);
           updateStateFromProfile(data.profile);
+
           addHistory(prizeName, prizeValue, mode);
 
           els.statusTitle.textContent = resultText;
           els.statusSubtitle.textContent = thanks;
+
           els.resultPrizeName.textContent = prizeName;
           els.resultPrizeValue.textContent = subtitle || prizeValue;
           els.resultSubtitle.textContent = resultText;
@@ -2415,9 +2371,7 @@
       async function handlePurchase() {
         if (STATE.buying || STATE.spinning) return;
 
-        if (!requireValidName("Ingresá tu nombre antes de comprar fichas.")) {
-          return;
-        }
+        if (!requireValidName("Ingresá tu nombre antes de comprar fichas.")) return;
 
         if (!STATE.userId) {
           showToast("Falta user_id", "Abrí la ruleta desde Telegram para identificar al jugador.", "error");
@@ -2441,7 +2395,6 @@
           els.statusChip.textContent = "🧾 Pendiente";
 
           showToast("Compra registrada", `ID: ${data.purchase_id}. Te enviamos al pago.`, "success", 3400);
-
           STATE.hasLoadedAdminOnce = false;
 
           if (paymentUrl) {
@@ -2466,9 +2419,11 @@
 
       function setCountry(country) {
         STATE.selectedCountry = country === "AR" ? "AR" : "UY";
+
         [...els.countrySwitch.querySelectorAll(".chip")].forEach((chip) => {
           chip.classList.toggle("active", chip.dataset.country === STATE.selectedCountry);
         });
+
         persistSettings();
         updateAllCounters();
         updateButtons();
@@ -2479,16 +2434,6 @@
         persistSettings();
         updateAllCounters();
         updateButtons();
-      }
-
-      function openModal(modal) {
-        modal.classList.add("show");
-        setBodyModalState();
-      }
-
-      function closeModal(modal) {
-        modal.classList.remove("show");
-        setBodyModalState();
       }
 
       function randomBetween(min, max) {
@@ -2517,9 +2462,9 @@
         if (confettiFrame) cancelAnimationFrame(confettiFrame);
 
         function tick() {
-          const width = window.innerWidth;
-          const height = window.innerHeight;
-          confettiCtx.clearRect(0, 0, width, height);
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          confettiCtx.clearRect(0, 0, w, h);
 
           confettiPieces.forEach((p) => {
             p.vx *= p.drag;
@@ -2538,17 +2483,122 @@
             confettiCtx.restore();
           });
 
-          confettiPieces = confettiPieces.filter((p) => p.life > 0 && p.y < height + 40);
+          confettiPieces = confettiPieces.filter((p) => p.life > 0 && p.y < h + 40);
 
           if (confettiPieces.length) {
             confettiFrame = requestAnimationFrame(tick);
           } else {
-            confettiCtx.clearRect(0, 0, width, height);
+            confettiCtx.clearRect(0, 0, w, h);
             confettiFrame = null;
           }
         }
 
         tick();
+      }
+
+      function renderAdminUsers() {
+        if (!STATE.adminUsers.length) {
+          els.adminBuyersList.innerHTML = `
+            <div class="item">
+              <div class="item-head">
+                <div class="item-title">Sin usuarios cargados</div>
+                <div class="item-badge">Admin</div>
+              </div>
+              <div class="item-meta">
+                Todavía no hay nombres guardados para mostrar.
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        els.adminBuyersList.innerHTML = STATE.adminUsers.map((user) => {
+          const name = user.display_name || user.full_name || user.username || "Sin nombre";
+          const secondary = user.username
+            ? `@${user.username}`
+            : (user.full_name && user.full_name !== name ? user.full_name : "");
+
+          return `
+            <div class="item" data-user-key="${escapeHtml(user.user_key || "")}">
+              <div class="item-head">
+                <div class="item-title">${escapeHtml(name)}</div>
+                <div class="item-badge">${escapeHtml(String(user.fichas || 0))} ficha(s)</div>
+              </div>
+              <div class="item-meta">
+                ${secondary ? `${escapeHtml(secondary)} · ` : ""}${escapeHtml(user.status || "active")} · Demo: ${escapeHtml(String(user.demo_spins_left || 0))}
+              </div>
+              <div class="admin-user-actions">
+                <button class="mini-btn primary" type="button" data-add-qty="1" data-user-key="${escapeHtml(user.user_key || "")}">+1 ficha</button>
+                <button class="mini-btn accent" type="button" data-add-qty="5" data-user-key="${escapeHtml(user.user_key || "")}">+5 fichas</button>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      async function loadAdminUsers(force = false) {
+        if (!STATE.isAdminMode) return;
+        if (!STATE.userId) {
+          renderAdminUsers();
+          return;
+        }
+        if (STATE.hasLoadedAdminOnce && !force) return;
+
+        const q = encodeURIComponent(STATE.adminFilter || "");
+        const adminKey = encodeURIComponent("Admin");
+
+        try {
+          const data = await apiGet(`/api/admin/users?user_id=${encodeURIComponent(STATE.userId)}&admin_key=${adminKey}&q=${q}`);
+          STATE.adminUsers = Array.isArray(data.users) ? data.users : [];
+          STATE.hasLoadedAdminOnce = true;
+          renderAdminUsers();
+          return;
+        } catch {}
+
+        try {
+          const fallback = await api("/api/admin/buyers", {
+            user_id: STATE.userId,
+            admin_key: "Admin"
+          });
+
+          const buyers = Array.isArray(fallback.buyers) ? fallback.buyers : [];
+          STATE.adminUsers = buyers.map((buyer) => ({
+            user_key: buyer.user_key || "",
+            user_id: buyer.user_id || "",
+            username: buyer.username || "",
+            full_name: buyer.full_name || "",
+            display_name: buyer.display_name || buyer.full_name || buyer.username || "Sin nombre",
+            fichas: Number(buyer.fichas_actuales || 0),
+            demo_spins_left: 0,
+            status: buyer.status || "pending"
+          }));
+
+          STATE.hasLoadedAdminOnce = true;
+          renderAdminUsers();
+        } catch (error) {
+          STATE.adminUsers = [];
+          renderAdminUsers();
+          showToast("Admin", error.message || "No se pudo cargar la lista de usuarios.", "error");
+        }
+      }
+
+      async function adminAddFichaByUserKey(userKey, qty) {
+        if (!STATE.isAdminMode || !userKey) return;
+
+        try {
+          const data = await api("/api/admin/add-fichas-by-user-key", {
+            user_id: STATE.userId,
+            admin_key: "Admin",
+            user_key: userKey,
+            qty
+          });
+
+          showToast("Admin", data.message || "Fichas agregadas correctamente.", "success");
+          STATE.hasLoadedAdminOnce = false;
+          await loadAdminUsers(true);
+        } catch (error) {
+          showToast("Admin", error.message || "No se pudieron agregar fichas.", "error");
+        }
       }
 
       function bindEvents() {
@@ -2560,8 +2610,12 @@
 
         els.spinDemoBtn.addEventListener("click", () => handleSpin("demo"));
         els.spinPaidBtn.addEventListener("click", () => handleSpin("paid"));
+
         els.goBuyBtn.addEventListener("click", () => {
-          document.querySelector(".right-col")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          document.querySelector(".right-col")?.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+          });
         });
 
         els.qtyMinusBtn.addEventListener("click", () => changeQty(-1));
@@ -2579,6 +2633,7 @@
 
         els.playerNameInput.addEventListener("input", () => {
           const currentValue = sanitizeDisplayName(els.playerNameInput.value);
+
           if (isAdminKeyword(currentValue)) {
             els.nameHintText.textContent = "Vas a entrar al panel administrador.";
           } else if (hasRealName(currentValue)) {
@@ -2613,17 +2668,31 @@
           }
         });
 
-        if (els.adminAddFichaBtn) {
-          els.adminAddFichaBtn.addEventListener("click", adminAddFicha);
-        }
+        els.adminRefreshBtn?.addEventListener("click", async () => {
+          STATE.hasLoadedAdminOnce = false;
+          await loadAdminUsers(true);
+          showToast("Admin", "Lista actualizada.", "info");
+        });
 
-        if (els.adminRefreshBtn) {
-          els.adminRefreshBtn.addEventListener("click", async () => {
+        els.adminSearchInput?.addEventListener("input", () => {
+          clearTimeout(adminSearchTimer);
+          STATE.adminFilter = normalizeText(els.adminSearchInput.value, "");
+          adminSearchTimer = setTimeout(async () => {
             STATE.hasLoadedAdminOnce = false;
-            await loadAdminBuyers(true);
-            showToast("Admin", "Lista actualizada.", "info");
-          });
-        }
+            await loadAdminUsers(true);
+          }, 260);
+        });
+
+        els.adminBuyersList?.addEventListener("click", async (event) => {
+          const btn = event.target.closest("[data-user-key][data-add-qty]");
+          if (!btn) return;
+
+          const userKey = btn.getAttribute("data-user-key") || "";
+          const qty = Number(btn.getAttribute("data-add-qty") || "1");
+          if (!userKey || !Number.isFinite(qty) || qty <= 0) return;
+
+          await adminAddFichaByUserKey(userKey, Math.floor(qty));
+        });
       }
 
       async function initAdminIfNeeded() {
@@ -2648,7 +2717,6 @@
         restoreHistory();
 
         STATE.displayName = sanitizeDisplayName(STATE.displayName);
-
         if (!hasRealName(STATE.displayName) && !isAdminKeyword(STATE.displayName)) {
           STATE.displayName = "";
         }
@@ -2661,7 +2729,7 @@
         bindEvents();
         resizeCanvases();
         setCountry(STATE.selectedCountry);
-        renderAdminBuyers();
+        renderAdminUsers();
 
         await initAdminIfNeeded();
 

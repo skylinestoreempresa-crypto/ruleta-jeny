@@ -13,11 +13,14 @@ ENCODING = "utf-8"
 
 VALID_CURRENCIES = {"UYU", "ARS"}
 VALID_COUNTRIES = {"AR", "UY"}
+VALID_PROFILE_STATUSES = {"active", "inactive", "blocked"}
+VALID_PURCHASE_STATUSES = {"pending", "approved", "rejected"}
 
 DEFAULT_CURRENCY = "UYU"
 DEFAULT_COUNTRY = "UY"
 DEFAULT_DISPLAY_NAME = "Jugador"
 
+MAX_KEY_LENGTH = 120
 MAX_DISPLAY_NAME_LENGTH = 40
 MAX_USERNAME_LENGTH = 80
 MAX_FULL_NAME_LENGTH = 120
@@ -28,8 +31,9 @@ MAX_STATUS_LENGTH = 20
 MAX_REASON_LENGTH = 220
 MAX_LOG_ITEMS = 10000
 MAX_PURCHASE_ITEMS = 50000
+MAX_ADMIN_LIST_LIMIT = 5000
 
-PROFILE_VERSION = 4
+PROFILE_VERSION = 5
 PURCHASE_VERSION = 2
 SPIN_LOG_VERSION = 2
 
@@ -162,11 +166,22 @@ def _normalize_country(country: str | None) -> str:
 
 
 def _normalize_user_id(user_id: str | int | None) -> str:
-    return _limit_text(user_id, max_length=64)
+    value = _limit_text(user_id, max_length=64)
+    return "" if value in {"None", "null"} else value
 
 
-def _normalize_status(value: Any, fallback: str = "active") -> str:
-    return _limit_text(value, max_length=MAX_STATUS_LENGTH, fallback=fallback).lower()
+def _normalize_profile_status(value: Any, fallback: str = "active") -> str:
+    status = _limit_text(value, max_length=MAX_STATUS_LENGTH, fallback=fallback).lower()
+    return status if status in VALID_PROFILE_STATUSES else fallback
+
+
+def _normalize_purchase_status(value: Any, fallback: str = "pending") -> str:
+    status = _limit_text(value, max_length=MAX_STATUS_LENGTH, fallback=fallback).lower()
+    return status if status in VALID_PURCHASE_STATUSES else fallback
+
+
+def _normalize_key(key: Any) -> str:
+    return _limit_text(key, max_length=MAX_KEY_LENGTH)
 
 
 def _generate_id(prefix: str) -> str:
@@ -298,7 +313,12 @@ def pick_weighted_prize(prizes: list[dict[str, Any]]) -> dict[str, Any]:
     return copy.deepcopy(random.choices(valid_prizes, weights=weights, k=1)[0])
 
 
-def get_user_key(user_id: str | int | None, username: str | None, full_name: str | None) -> str:
+def get_user_key(
+    user_id: str | int | None,
+    username: str | None,
+    full_name: str | None,
+    display_name: str | None = None,
+) -> str:
     user_id_text = _normalize_user_id(user_id)
     if user_id_text not in {"", "0"}:
         return user_id_text
@@ -307,7 +327,8 @@ def get_user_key(user_id: str | int | None, username: str | None, full_name: str
     if normalized_username:
         return f"user:{normalized_username}"
 
-    return f"guest:{_safe_slug(full_name, fallback='guest')}"
+    preferred_name = display_name or full_name
+    return f"guest:{_safe_slug(preferred_name, fallback='guest')}"
 
 
 def _default_user_profile(
@@ -411,7 +432,7 @@ def _normalize_user_profile(
         ),
         "created_at": created_at,
         "updated_at": timestamp,
-        "last_seen_at": timestamp,
+        "last_seen_at": _limit_text(profile.get("last_seen_at"), fallback=timestamp),
         "wins": _safe_int(profile.get("wins"), minimum=0),
         "spins_total": _safe_int(profile.get("spins_total"), minimum=0),
         "paid_spins_total": _safe_int(profile.get("paid_spins_total"), minimum=0),
@@ -420,7 +441,7 @@ def _normalize_user_profile(
         "best_prize": _limit_text(profile.get("best_prize"), max_length=MAX_PRIZE_NAME_LENGTH),
         "total_fichas_added": total_added,
         "total_fichas_removed": total_removed,
-        "status": _normalize_status(profile.get("status"), fallback="active"),
+        "status": _normalize_profile_status(profile.get("status"), fallback="active"),
         "profile_version": max(PROFILE_VERSION, _safe_int(profile.get("profile_version"), default=PROFILE_VERSION)),
     }
 
@@ -439,7 +460,7 @@ def save_users(users: dict[str, Any], users_file: Path) -> None:
             continue
         if not isinstance(value, dict):
             continue
-        sanitized[_limit_text(key, max_length=120)] = value
+        sanitized[_normalize_key(key)] = value
     write_json(users_file, sanitized)
 
 
@@ -455,7 +476,7 @@ def ensure_user_profile(
 ) -> dict[str, Any]:
     with _FILE_LOCK:
         users = load_users(users_file)
-        key = get_user_key(user_id, username, full_name)
+        key = get_user_key(user_id, username, full_name, display_name)
         current_profile = users.get(key)
 
         profile = _normalize_user_profile(
@@ -481,10 +502,11 @@ def get_user_profile(
     users_file: Path,
     default_currency: str,
     default_demo_spins: int,
+    display_name: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     with _FILE_LOCK:
         users = load_users(users_file)
-        key = get_user_key(user_id, username, full_name)
+        key = get_user_key(user_id, username, full_name, display_name)
         profile = users.get(key)
 
         normalized_profile = _normalize_user_profile(
@@ -493,7 +515,7 @@ def get_user_profile(
             username=username,
             full_name=full_name,
             currency=(profile or {}).get("currency", default_currency) if isinstance(profile, dict) else default_currency,
-            display_name=(profile or {}).get("display_name") if isinstance(profile, dict) else None,
+            display_name=display_name or ((profile or {}).get("display_name") if isinstance(profile, dict) else None),
             default_demo_spins=default_demo_spins,
             default_currency=default_currency,
         )
@@ -523,8 +545,29 @@ def update_user_profile(key: str, profile: dict[str, Any], users_file: Path) -> 
             default_currency=currency,
         )
 
-        users[_limit_text(key, max_length=120)] = normalized_profile
+        users[_normalize_key(key)] = normalized_profile
         save_users(users, users_file)
+
+
+def touch_user_profile(
+    key: str,
+    users_file: Path,
+) -> dict[str, Any]:
+    with _FILE_LOCK:
+        users = load_users(users_file)
+        profile = users.get(key)
+
+        if not isinstance(profile, dict):
+            raise ValueError("Usuario no encontrado")
+
+        timestamp = now_iso()
+        profile["updated_at"] = timestamp
+        profile["last_seen_at"] = timestamp
+        profile["profile_version"] = max(PROFILE_VERSION, _safe_int(profile.get("profile_version"), default=PROFILE_VERSION))
+
+        users[key] = profile
+        save_users(users, users_file)
+        return copy.deepcopy(profile)
 
 
 def add_fichas_to_user(key: str, amount: int, users_file: Path) -> dict[str, Any]:
@@ -661,7 +704,7 @@ def log_spin(
                 "spin_id": _generate_id("spin"),
                 "timestamp": now_iso(),
                 "version": SPIN_LOG_VERSION,
-                "user_key": get_user_key(user_id, username, full_name),
+                "user_key": get_user_key(user_id, username, full_name, display_name),
                 "user_id": _normalize_user_id(user_id),
                 "username": _normalize_username(username),
                 "full_name": _limit_text(full_name, max_length=MAX_FULL_NAME_LENGTH),
@@ -726,7 +769,7 @@ def _normalize_purchase_item(
             max_length=MAX_PURCHASE_ID_LENGTH,
             fallback=_generate_id("buy"),
         ),
-        "user_key": get_user_key(normalized_user_id, normalized_username, normalized_full_name),
+        "user_key": get_user_key(normalized_user_id, normalized_username, normalized_full_name, normalized_display_name),
         "user_id": normalized_user_id,
         "username": normalized_username,
         "full_name": normalized_full_name,
@@ -734,7 +777,7 @@ def _normalize_purchase_item(
         "country": normalized_country,
         "currency": normalized_currency,
         "qty": normalized_qty,
-        "status": _normalize_status(item.get("status"), fallback="pending"),
+        "status": _normalize_purchase_status(item.get("status"), fallback="pending"),
         "created_at": created_at,
         "updated_at": _limit_text(item.get("updated_at"), fallback=timestamp),
         "approved_at": _limit_text(item.get("approved_at")),
@@ -871,7 +914,7 @@ def get_pending_purchases(purchases_file: Path) -> list[dict[str, Any]]:
         pending = [
             _normalize_purchase_item(item)
             for item in items
-            if isinstance(item, dict) and _normalize_status(item.get("status"), fallback="pending") == "pending"
+            if isinstance(item, dict) and _normalize_purchase_status(item.get("status"), fallback="pending") == "pending"
         ]
         return pending
 
@@ -935,6 +978,7 @@ def get_user_stats(
     users_file: Path,
     default_currency: str,
     default_demo_spins: int,
+    display_name: str | None = None,
 ) -> dict[str, Any]:
     key, profile = get_user_profile(
         user_id=user_id,
@@ -943,6 +987,7 @@ def get_user_stats(
         users_file=users_file,
         default_currency=default_currency,
         default_demo_spins=default_demo_spins,
+        display_name=display_name,
     )
     return {
         "user_key": key,
@@ -953,8 +998,118 @@ def get_user_stats(
         "spins_total": _safe_int(profile.get("spins_total"), minimum=0),
         "last_prize": _limit_text(profile.get("last_prize")),
         "currency": normalize_currency(profile.get("currency"), default_currency),
-        "status": _normalize_status(profile.get("status"), fallback="active"),
+        "status": _normalize_profile_status(profile.get("status"), fallback="active"),
     }
+
+
+def get_all_users_for_admin(
+    users_file: Path,
+    search: str = "",
+    only_active: bool = False,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    users = load_users(users_file)
+    query = _clean_text(search).lower()
+    safe_limit = _safe_int(limit, default=500, minimum=1, maximum=MAX_ADMIN_LIST_LIMIT)
+
+    result: list[dict[str, Any]] = []
+
+    for key, raw_profile in users.items():
+        if not isinstance(raw_profile, dict):
+            continue
+
+        profile = _normalize_user_profile(
+            raw_profile=raw_profile,
+            user_id=raw_profile.get("user_id"),
+            username=raw_profile.get("username"),
+            full_name=raw_profile.get("full_name"),
+            currency=raw_profile.get("currency", DEFAULT_CURRENCY),
+            display_name=raw_profile.get("display_name"),
+            default_demo_spins=_safe_int(raw_profile.get("demo_spins_left"), default=0, minimum=0),
+            default_currency=raw_profile.get("currency", DEFAULT_CURRENCY),
+        )
+
+        if only_active and profile.get("status") != "active":
+            continue
+
+        haystack = " ".join([
+            _clean_text(key),
+            _clean_text(profile.get("display_name")),
+            _clean_text(profile.get("full_name")),
+            _clean_text(profile.get("username")),
+            _clean_text(profile.get("user_id")),
+        ]).lower()
+
+        if query and query not in haystack:
+            continue
+
+        result.append(
+            {
+                "user_key": _normalize_key(key),
+                "user_id": _normalize_user_id(profile.get("user_id")),
+                "username": _normalize_username(profile.get("username")),
+                "full_name": _limit_text(profile.get("full_name"), max_length=MAX_FULL_NAME_LENGTH),
+                "display_name": sanitize_name(profile.get("display_name")),
+                "fichas": _safe_int(profile.get("fichas"), minimum=0),
+                "demo_spins_left": _safe_int(profile.get("demo_spins_left"), minimum=0),
+                "wins": _safe_int(profile.get("wins"), minimum=0),
+                "spins_total": _safe_int(profile.get("spins_total"), minimum=0),
+                "status": _normalize_profile_status(profile.get("status"), fallback="active"),
+                "created_at": _limit_text(profile.get("created_at")),
+                "updated_at": _limit_text(profile.get("updated_at")),
+                "last_seen_at": _limit_text(profile.get("last_seen_at")),
+                "currency": normalize_currency(profile.get("currency"), DEFAULT_CURRENCY),
+            }
+        )
+
+    result.sort(
+        key=lambda item: (
+            (item.get("display_name") or "").lower(),
+            (item.get("username") or "").lower(),
+            (item.get("user_id") or "").lower(),
+        )
+    )
+    return result[:safe_limit]
+
+
+def get_admin_user_options(
+    users_file: Path,
+    search: str = "",
+    limit: int = 300,
+) -> list[dict[str, str]]:
+    users = get_all_users_for_admin(
+        users_file=users_file,
+        search=search,
+        only_active=False,
+        limit=limit,
+    )
+
+    options: list[dict[str, str]] = []
+    for item in users:
+        username = item.get("username", "")
+        full_name = item.get("full_name", "")
+        display_name = item.get("display_name", DEFAULT_DISPLAY_NAME)
+        fichas = _safe_int(item.get("fichas"), minimum=0)
+
+        secondary = ""
+        if username:
+            secondary = f"@{username}"
+        elif full_name and full_name != display_name:
+            secondary = full_name
+
+        label = display_name
+        if secondary:
+            label = f"{display_name} · {secondary}"
+        label = f"{label} · {fichas} ficha(s)"
+
+        options.append(
+            {
+                "value": item["user_key"],
+                "label": label,
+            }
+        )
+
+    return options
 
 
 def migrate_users_file(users_file: Path, default_currency: str = DEFAULT_CURRENCY, default_demo_spins: int = 0) -> dict[str, Any]:
@@ -965,7 +1120,7 @@ def migrate_users_file(users_file: Path, default_currency: str = DEFAULT_CURRENC
         for key, raw_profile in users.items():
             if not isinstance(raw_profile, dict):
                 continue
-            safe_key = _limit_text(key, max_length=120)
+            safe_key = _normalize_key(key)
             migrated[safe_key] = _normalize_user_profile(
                 raw_profile=raw_profile,
                 user_id=raw_profile.get("user_id"),
